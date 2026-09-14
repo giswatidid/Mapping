@@ -41,28 +41,29 @@ That project normalises Energex, Ergon Energy and Queensland-relevant Essential 
 
 Queensland Government `AdminBoundariesFramework/FeatureServer/11` is queried directly in EPSG:4326.
 
-### BOM radar
+### Rain radar
 
-The production radar path is the Bureau's **Registered User GIS2Web WMS** rainfall-intensity mosaic. The Bureau's current radar-images guide states that this national rainfall-intensity mosaic is available to Registered Users as a WMS layer.
+The default radar source is the public **RainViewer Weather Maps API**:
 
-The generator is already wired for it:
+`https://api.rainviewer.com/public/weather-maps.json`
+
+RainViewer publishes keyless Web Mercator composite radar tiles for personal, educational and small-scale community use. The generator takes the latest published frame, downloads only the tiles intersecting the warning extent, mosaics/crops them to the exact map bounds and overlays the warning/LGA context.
+
+Current configuration:
 
 ```text
-BOM_RADAR_WMS_URL=https://spatial.bom.gov.au/cgi-bin/mapserver/users/<account>/wxs?
-BOM_RADAR_WMS_LAYER=<layer name supplied by BOM / GetCapabilities>
-BOM_RADAR_WMS_VERSION=1.1.1
-BOM_RADAR_WMS_STYLE=
-BOM_RADAR_WMS_USERNAME=<only if the account uses HTTP basic authentication>
-BOM_RADAR_WMS_PASSWORD=<only if required>
+RAINVIEWER_ENABLED=true
+RAINVIEWER_MANIFEST_URL=https://api.rainviewer.com/public/weather-maps.json
+RAINVIEWER_TILE_SIZE=512
+RAINVIEWER_MAX_ZOOM=7
+RAINVIEWER_COLOR_SCHEME=2
 ```
 
-These values are passed to the production workflow through GitHub repository secrets. They are never written into the browser application.
+Colour scheme 2 is RainViewer's current **Universal Blue** radar reflectivity palette. Generated maps identify the source as RainViewer and the website includes the required attribution link.
 
-The renderer requests a transparent PNG for the exact warning extent, overlays the warning geometry and LGA boundaries, and provides a rainfall-intensity legend.
+An authorised BOM GIS2Web WMS can still be supplied as a fallback with `BOM_RADAR_WMS_URL`, `BOM_RADAR_WMS_LAYER` and the optional WMS credential variables.
 
-An experimental public WMTS client is retained in `src/radar.py`, but it is **disabled by default**. Testing from GitHub-hosted runners in September 2026 found that the commonly referenced public WMTS capabilities path returned HTTP 404 and recent tile probes returned no usable frames. It must not silently replace the registered WMS in production.
-
-To obtain or confirm registered access, contact Bureau Real-time Data Services at `webreg@bom.gov.au`. Bureau documentation identifies radar data and its geospatial service as registered real-time data products.
+The project also contains diagnostics for BOM's public national radar mosaic `IDR00004`. Live testing from GitHub Actions confirmed that both `https://www.bom.gov.au/radar/IDR00004.jpg` and the anonymous FTP `IDR00004.T.yyyymmddhhmm.png` files are current and reachable. They are not used by the public site because BOM does not publish national-mosaic georeferencing metadata in the radar coordinate directory and its current copyright terms restrict republication of radar imagery without the appropriate data licence.
 
 ## Current project status
 
@@ -75,8 +76,9 @@ Implemented:
 - combined-warning extent calculation
 - individual maps when multiple warnings are active
 - static PNG warning/outage map with legend and timestamps
-- registered GIS2Web WMS radar renderer with warning/LGA overlay and rainfall-intensity key
-- optional experimental WMTS fallback, disabled by default
+- RainViewer Web Mercator radar renderer with warning/LGA overlay and dBZ key
+- optional authorised BOM GIS2Web WMS fallback
+- BOM national-mosaic and legacy PSBA diagnostic workflows
 - machine-readable `manifest.json`
 - source-health states that distinguish feed failure from no active warnings
 - GitHub Pages frontend with PNG previews/downloads
@@ -86,7 +88,7 @@ Implemented:
 
 Still to connect:
 
-- an authorised BOM Registered User GIS2Web account endpoint/layer for production radar
+- a reliable public spatial source for exact BOM severe-thunderstorm warning polygons when CAP contains no geometry
 - optional registered BOM warning WFS/GeoJSON fallback
 - secure one-click GitHub workflow dispatch from the website (planned via a small Cloudflare Worker)
 
@@ -127,6 +129,10 @@ Optional configuration:
 ```text
 BOM_CAP_RSS_URL=https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/rss.xml
 BOM_WARNING_GEOJSON_URL=https://...
+RAINVIEWER_ENABLED=true
+RAINVIEWER_MANIFEST_URL=https://api.rainviewer.com/public/weather-maps.json
+
+# Optional authorised BOM radar fallback
 BOM_RADAR_WMS_URL=https://...
 BOM_RADAR_WMS_LAYER=...
 BOM_RADAR_WMS_VERSION=1.1.1
@@ -161,7 +167,7 @@ Official BOM CAP ───────────────┐
 Registered warning geometry ───┤ (optional override)
 Power outage GeoJSON ──────────┼─> Python generator ─> PNG maps + manifest ─> GitHub Pages
 QLD LGA boundaries ─────────────┤
-BOM registered GIS2Web WMS ─────┘
+RainViewer radar tiles ──────────┘
 ```
 
 The website remains static. The **Generate Maps** button is already wired to support a future relay URL, but no GitHub credential is ever placed in browser JavaScript. A Cloudflare Worker can hold the credential and dispatch `workflow_dispatch` securely.
@@ -181,4 +187,4 @@ Old PNGs are removed before every generation so a stale warning map cannot silen
 
 BOM CAP alerts accessed through WMO SWIC remain official BOM warnings. WMO states SWIC warning information may be reused by media or other websites when attributed to the respective National Meteorological and Hydrological Service.
 
-For Bureau spatial/radar products beyond the public CAP distribution, the production design prefers Registered User Services rather than relying on undocumented or reverse-engineered endpoints.
+Radar imagery on the public site is sourced through the RainViewer public API and attributed to RainViewer. Direct BOM radar imagery is retained only for diagnostics because BOM's anonymous/public radar products have separate publication restrictions. For Bureau spatial-warning products beyond CAP, the project will use only an authorised/public source.
