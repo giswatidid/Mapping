@@ -4,8 +4,8 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SITE_DIR = ROOT / "site"
-OUTPUT_DIR = SITE_DIR / "generated"
+SITE_DIR = ROOT
+OUTPUT_DIR = ROOT / "generated"
 
 POWER_OUTAGE_URL = os.getenv(
     "POWER_OUTAGE_URL",
