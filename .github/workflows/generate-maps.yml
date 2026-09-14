@@ -71,5 +71,6 @@ jobs:
             echo "No generated output changes to publish."
           else
             git commit -m "Update generated warning maps"
+            git pull --rebase origin main
             git push origin HEAD:main
           fi
