@@ -13,7 +13,7 @@ from matplotlib.patches import Patch
 from matplotlib.colors import ListedColormap, BoundaryNorm
 from matplotlib.cm import ScalarMappable
 
-from .radar import REFLECTIVITY_LEGEND, fetch_bom_radar
+from .radar import RAIN_RATE_LEGEND, REFLECTIVITY_LEGEND, fetch_bom_radar
 
 
 def padded_bounds(gdf: gpd.GeoDataFrame, fraction: float = 0.09, minimum: float = 0.18) -> tuple[float, float, float, float]:
@@ -324,11 +324,12 @@ def render_radar_map(
     ]
     ax.legend(handles=context_legend, loc="lower left", framealpha=0.92, fontsize=8)
 
+    legend_spec = RAIN_RATE_LEGEND if radar.legend_kind == "rain_rate" else REFLECTIVITY_LEGEND
     colours = [
         tuple(channel / 255 for channel in rgba[:3])
-        for _, rgba in REFLECTIVITY_LEGEND
+        for _, rgba in legend_spec
     ]
-    labels = [label for label, _ in REFLECTIVITY_LEGEND]
+    labels = [label for label, _ in legend_spec]
     cmap = ListedColormap(colours)
     norm = BoundaryNorm(range(len(colours) + 1), cmap.N)
     scalar = ScalarMappable(norm=norm, cmap=cmap)
@@ -341,11 +342,16 @@ def render_radar_map(
         ticks=[index + 0.5 for index in range(len(labels))],
     )
     colorbar.ax.set_yticklabels(labels, fontsize=6.5)
-    colorbar.set_label("BOM radar reflectivity (dBZ)", fontsize=8)
+    colorbar.set_label(
+        "BOM radar rainfall intensity (mm/h)"
+        if radar.legend_kind == "rain_rate"
+        else "BOM radar reflectivity (dBZ)",
+        fontsize=8,
+    )
 
     footer = [
         f"Generated {_display_time(generated_at)}",
-        f"Radar {_display_time(radar.timestamp)}",
+        f"Radar {_display_time(radar.timestamp)}" if radar.timestamp else "BOM radar: latest WMS mosaic",
     ]
     if warning_time:
         footer.append(f"Warning issued {_display_time(warning_time)}")
@@ -362,4 +368,6 @@ def render_radar_map(
         "radar_layer": radar.layer,
         "radar_tile_matrix": radar.tile_matrix,
         "radar_tiles": radar.tile_count,
+        "radar_provider": radar.provider,
+        "radar_legend": radar.legend_kind,
     }
