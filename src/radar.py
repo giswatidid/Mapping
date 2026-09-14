@@ -43,10 +43,31 @@ class TileMatrix:
 class RadarFrame:
     image: Image.Image
     bounds: tuple[float, float, float, float]
-    timestamp: str
+    timestamp: str | None
     layer: str
     tile_matrix: str
     tile_count: int
+    provider: str
+    legend_kind: str
+
+
+RAIN_RATE_LEGEND = [
+    ("less than 2", (245, 245, 255, 255)),
+    ("2 - 3", (180, 180, 255, 255)),
+    ("3 - 5", (120, 120, 255, 255)),
+    ("5 - 7", (20, 20, 255, 255)),
+    ("7 - 10", (0, 216, 195, 255)),
+    ("10 - 15", (0, 150, 144, 255)),
+    ("15 - 25", (0, 102, 102, 255)),
+    ("25 - 35", (255, 255, 0, 255)),
+    ("35 - 55", (255, 200, 0, 255)),
+    ("55 - 80", (255, 150, 0, 255)),
+    ("80 - 120", (255, 100, 0, 255)),
+    ("120 - 180", (255, 0, 0, 255)),
+    ("180 - 270", (200, 0, 0, 255)),
+    ("270 - 400", (120, 0, 0, 255)),
+    ("400+", (40, 0, 0, 255)),
+]
 
 
 REFLECTIVITY_LEGEND = [
@@ -85,6 +106,74 @@ _STATIC_MATRIX_GEOMETRY = [
     (7, 11584952.0, -583562.846447, 22, 17),
     (8, 11584952.0, -740105.880375, 43, 33),
 ]
+
+
+def _wms_auth() -> tuple[str, str] | None:
+    if config.BOM_RADAR_WMS_USERNAME:
+        return (config.BOM_RADAR_WMS_USERNAME, config.BOM_RADAR_WMS_PASSWORD)
+    return None
+
+
+def _fetch_registered_wms(bounds: tuple[float, float, float, float]) -> RadarFrame:
+    minx, miny, maxx, maxy = bounds
+    width = max(600, config.BOM_RADAR_WMS_WIDTH)
+    ratio = max(0.30, min(3.0, (maxy - miny) / max(maxx - minx, 0.001)))
+    height = max(500, min(2400, int(round(width * ratio))))
+
+    version = config.BOM_RADAR_WMS_VERSION
+    params = {
+        "SERVICE": "WMS",
+        "REQUEST": "GetMap",
+        "VERSION": version,
+        "LAYERS": config.BOM_RADAR_WMS_LAYER,
+        "STYLES": config.BOM_RADAR_WMS_STYLE,
+        "FORMAT": "image/png",
+        "TRANSPARENT": "TRUE",
+        "WIDTH": str(width),
+        "HEIGHT": str(height),
+    }
+
+    if version.startswith("1.3"):
+        # EPSG:4326 axis order under WMS 1.3.0 is latitude,longitude.
+        params["CRS"] = "EPSG:4326"
+        params["BBOX"] = f"{miny},{minx},{maxy},{maxx}"
+    else:
+        params["SRS"] = "EPSG:4326"
+        params["BBOX"] = f"{minx},{miny},{maxx},{maxy}"
+
+    response = requests.get(
+        config.BOM_RADAR_WMS_URL,
+        params=params,
+        auth=_wms_auth(),
+        timeout=config.HTTP_TIMEOUT,
+        headers={
+            "User-Agent": config.USER_AGENT,
+            "Accept": "image/png,image/*,*/*",
+        },
+    )
+    response.raise_for_status()
+
+    content_type = response.headers.get("Content-Type", "").lower()
+    if "image" not in content_type:
+        snippet = response.text[:300].replace("\n", " ") if response.text else ""
+        raise RuntimeError(
+            f"BOM GIS2Web WMS returned {content_type or 'unknown content type'}"
+            + (f": {snippet}" if snippet else "")
+        )
+
+    image = Image.open(BytesIO(response.content)).convert("RGBA")
+    timestamp = response.headers.get("Last-Modified") or response.headers.get("Date")
+
+    return RadarFrame(
+        image=image,
+        bounds=bounds,
+        timestamp=timestamp,
+        layer=config.BOM_RADAR_WMS_LAYER,
+        tile_matrix="WMS",
+        tile_count=1,
+        provider="gis2web_wms",
+        legend_kind="rain_rate",
+    )
 
 
 def _static_matrices() -> list[TileMatrix]:
@@ -412,8 +501,17 @@ def _probe_timestamp(
 
 
 def fetch_bom_radar(bounds: tuple[float, float, float, float]) -> RadarFrame:
+    if config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER:
+        return _fetch_registered_wms(bounds)
+
+    if not config.BOM_RADAR_WMTS_ENABLED:
+        raise RuntimeError(
+            "BOM Registered User GIS2Web WMS is not configured. "
+            "Set BOM_RADAR_WMS_URL and BOM_RADAR_WMS_LAYER."
+        )
+
     if not config.BOM_RADAR_WMTS_URL:
-        raise RuntimeError("BOM radar WMTS is not configured")
+        raise RuntimeError("Experimental BOM radar WMTS is not configured")
 
     matrix_set_id = "GoogleMapsCompatible_BoM"
     matrices = _static_matrices()
@@ -472,4 +570,6 @@ def fetch_bom_radar(bounds: tuple[float, float, float, float]) -> RadarFrame:
         layer=config.BOM_RADAR_WMTS_LAYER,
         tile_matrix=matrix.identifier,
         tile_count=tile_count,
+        provider="experimental_wmts",
+        legend_kind="reflectivity",
     )
