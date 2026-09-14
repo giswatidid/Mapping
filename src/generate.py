@@ -142,8 +142,9 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
             "lgas": None,
             "radar": {
                 "status": "not_checked",
-                "url": config.BOM_RADAR_WMS_URL or None,
-                "layer": config.BOM_RADAR_WMS_LAYER or None,
+                "url": config.BOM_RADAR_WMTS_URL or None,
+                "capabilities_url": config.BOM_RADAR_WMTS_CAPABILITIES_URL or None,
+                "layer": config.BOM_RADAR_WMTS_LAYER or None,
             },
         },
         "warnings": [],
@@ -210,14 +211,17 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                 )
             )
 
-    radar_configured = bool(config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER)
+    radar_configured = bool(
+        config.BOM_RADAR_WMTS_URL
+        and config.BOM_RADAR_WMTS_CAPABILITIES_URL
+        and config.BOM_RADAR_WMTS_LAYER
+    )
     if radar_configured:
         manifest["sources"]["radar"]["status"] = "configured"
+        manifest["sources"]["radar"]["message"] = "Official BOM public WMTS radar service."
     else:
         manifest["sources"]["radar"]["status"] = "source_unconfigured"
-        manifest["sources"]["radar"]["message"] = (
-            "Set BOM_RADAR_WMS_URL and BOM_RADAR_WMS_LAYER to enable radar maps."
-        )
+        manifest["sources"]["radar"]["message"] = "BOM radar WMTS configuration is incomplete."
 
     radar_error: str | None = None
 
@@ -267,6 +271,8 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                     }
                 )
                 manifest["sources"]["radar"]["status"] = "ok"
+                manifest["sources"]["radar"]["timestamp"] = radar_info.get("radar_time")
+                manifest["sources"]["radar"]["tile_matrix"] = radar_info.get("radar_tile_matrix")
             except Exception as exc:
                 radar_error = f"{type(exc).__name__}: {exc}"
                 manifest["sources"]["radar"]["status"] = "error"
