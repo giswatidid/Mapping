@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from io import BytesIO
 from datetime import datetime, timedelta, timezone
+import json
 import math
 import xml.etree.ElementTree as ET
 
@@ -106,6 +107,61 @@ _STATIC_MATRIX_GEOMETRY = [
     (7, 11584952.0, -583562.846447, 22, 17),
     (8, 11584952.0, -740105.880375, 43, 33),
 ]
+
+
+def _fetch_public_imageserver(bounds: tuple[float, float, float, float]) -> RadarFrame:
+    if not config.BOM_RADAR_IMAGESERVER_EXPORT_URL:
+        raise RuntimeError("Public BOM radar ImageServer is not configured")
+
+    minx, miny, maxx, maxy = bounds
+    width = max(600, config.BOM_RADAR_IMAGESERVER_WIDTH)
+    ratio = max(0.30, min(3.0, (maxy - miny) / max(maxx - minx, 0.001)))
+    height = max(500, min(2400, int(round(width * ratio))))
+
+    params = {
+        "bbox": f"{minx},{miny},{maxx},{maxy}",
+        "bboxSR": "4326",
+        "imageSR": "4326",
+        "size": f"{width},{height}",
+        "format": "png32",
+        "transparent": "true",
+        "f": "image",
+    }
+    if config.BOM_RADAR_IMAGESERVER_RENDERER:
+        params["renderingRule"] = json.dumps(
+            {"rasterFunction": config.BOM_RADAR_IMAGESERVER_RENDERER},
+            separators=(",", ":"),
+        )
+
+    response = requests.get(
+        config.BOM_RADAR_IMAGESERVER_EXPORT_URL,
+        params=params,
+        timeout=config.HTTP_TIMEOUT,
+        headers={
+            "User-Agent": config.USER_AGENT,
+            "Accept": "image/png,image/*,*/*",
+        },
+    )
+    response.raise_for_status()
+
+    content_type = response.headers.get("Content-Type", "").lower()
+    if "image" not in content_type:
+        snippet = response.text[:300].replace("\n", " ") if response.text else ""
+        raise RuntimeError(
+            f"BOM public radar ImageServer returned {content_type or 'unknown content type'}"
+            + (f": {snippet}" if snippet else "")
+        )
+
+    return RadarFrame(
+        image=Image.open(BytesIO(response.content)).convert("RGBA"),
+        bounds=bounds,
+        timestamp=response.headers.get("Last-Modified") or None,
+        layer="atm_surf_air_precip_rate_1hr_total_mm_h",
+        tile_matrix="ImageServer export",
+        tile_count=1,
+        provider="bom_public_imageserver",
+        legend_kind="rain_rate",
+    )
 
 
 def _fetch_public_arcgis(bounds: tuple[float, float, float, float]) -> RadarFrame:
@@ -556,8 +612,20 @@ def _probe_timestamp(
 
 
 def fetch_bom_radar(bounds: tuple[float, float, float, float]) -> RadarFrame:
+    if config.BOM_RADAR_IMAGESERVER_EXPORT_URL:
+        try:
+            return _fetch_public_imageserver(bounds)
+        except Exception:
+            # Fall through to the other public delivery paths. BOM's current
+            # public mapping stack has occasionally returned transient edge
+            # errors, so one provider must not make radar generation brittle.
+            pass
+
     if config.BOM_RADAR_ARCGIS_EXPORT_URL:
-        return _fetch_public_arcgis(bounds)
+        try:
+            return _fetch_public_arcgis(bounds)
+        except Exception:
+            pass
 
     if config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER:
         return _fetch_registered_wms(bounds)
