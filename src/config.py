@@ -27,6 +27,16 @@ BOM_CAP_RSS_URL = os.getenv(
     "https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/rss.xml",
 ).strip()
 
+# Public Queensland Government ArcGIS proxy for BOM operational layers.
+# This service exposes BOM's live radar rain-rate layer through a normal
+# ArcGIS MapServer export operation, which is ideal for static map generation.
+BOM_RADAR_ARCGIS_EXPORT_URL = os.getenv(
+    "BOM_RADAR_ARCGIS_EXPORT_URL",
+    "https://mapping.psba.qld.gov.au/AAMGeoservices/rest/services/BOMWMSv2/MapServer/export",
+).strip()
+BOM_RADAR_ARCGIS_LAYER = int(os.getenv("BOM_RADAR_ARCGIS_LAYER", "37"))
+BOM_RADAR_ARCGIS_WIDTH = int(os.getenv("BOM_RADAR_ARCGIS_WIDTH", "1600"))
+
 # Production radar source: BOM Registered User GIS2Web WMS. The endpoint and
 # layer are account-specific and are therefore supplied as GitHub secrets.
 BOM_RADAR_WMS_URL = os.getenv("BOM_RADAR_WMS_URL", "").strip()
