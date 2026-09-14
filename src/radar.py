@@ -1,0 +1,371 @@
+from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from io import BytesIO
+import math
+import xml.etree.ElementTree as ET
+
+from PIL import Image
+from pyproj import Transformer
+import requests
+
+from . import config
+
+
+@dataclass(frozen=True)
+class TileMatrix:
+    identifier: str
+    scale_denominator: float
+    top_left_x: float
+    top_left_y: float
+    tile_width: int
+    tile_height: int
+    matrix_width: int
+    matrix_height: int
+
+    @property
+    def pixel_size_m(self) -> float:
+        # OGC WMTS defines scale denominator using a 0.28 mm display pixel.
+        return self.scale_denominator * 0.00028
+
+    @property
+    def tile_span_x(self) -> float:
+        return self.pixel_size_m * self.tile_width
+
+    @property
+    def tile_span_y(self) -> float:
+        return self.pixel_size_m * self.tile_height
+
+
+@dataclass
+class RadarFrame:
+    image: Image.Image
+    bounds: tuple[float, float, float, float]
+    timestamp: str
+    layer: str
+    tile_matrix: str
+    tile_count: int
+
+
+REFLECTIVITY_LEGEND = [
+    ("12 - 23", (245, 245, 255, 255)),
+    ("23 - 28", (180, 180, 255, 255)),
+    ("28 - 31", (120, 120, 255, 255)),
+    ("31 - 34", (20, 20, 255, 255)),
+    ("34 - 37", (0, 216, 195, 255)),
+    ("37 - 40", (0, 150, 144, 255)),
+    ("40 - 43", (0, 102, 102, 255)),
+    ("43 - 46", (255, 255, 0, 255)),
+    ("46 - 49", (255, 200, 0, 255)),
+    ("49 - 52", (255, 150, 0, 255)),
+    ("52 - 55", (255, 100, 0, 255)),
+    ("55 - 58", (255, 0, 0, 255)),
+    ("58 - 61", (200, 0, 0, 255)),
+    ("61 - 64", (120, 0, 0, 255)),
+    ("> 64", (40, 0, 0, 255)),
+]
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+
+def _child_text(element: ET.Element, name: str) -> str | None:
+    for child in element:
+        if _local_name(child.tag) == name and child.text:
+            value = child.text.strip()
+            if value:
+                return value
+    return None
+
+
+def _descendants(element: ET.Element, name: str):
+    for node in element.iter():
+        if _local_name(node.tag) == name:
+            yield node
+
+
+def _session() -> requests.Session:
+    session = requests.Session()
+    session.headers.update(
+        {
+            "User-Agent": config.USER_AGENT,
+            "Accept": "image/png,application/xml,text/xml,*/*",
+        }
+    )
+    return session
+
+
+def _find_identified_element(root: ET.Element, tag_name: str, identifier: str) -> ET.Element:
+    for element in _descendants(root, tag_name):
+        for child in element:
+            if _local_name(child.tag) == "Identifier" and (child.text or "").strip() == identifier:
+                return element
+    raise RuntimeError(f"BOM WMTS capabilities does not contain {tag_name} {identifier}")
+
+
+def _layer_metadata(root: ET.Element, layer_id: str) -> tuple[str, list[str], str | None]:
+    layer = _find_identified_element(root, "Layer", layer_id)
+
+    matrix_set = None
+    for link in _descendants(layer, "TileMatrixSetLink"):
+        matrix_set = _child_text(link, "TileMatrixSet")
+        if matrix_set:
+            break
+    if not matrix_set:
+        raise RuntimeError(f"BOM WMTS layer {layer_id} has no TileMatrixSet")
+
+    timestamps: list[str] = []
+    default_timestamp = None
+    for dimension in _descendants(layer, "Dimension"):
+        identifier = (_child_text(dimension, "Identifier") or "").lower()
+        if identifier != "time":
+            continue
+        default_timestamp = _child_text(dimension, "Default")
+        for value in _descendants(dimension, "Value"):
+            if value.text and value.text.strip():
+                timestamps.append(value.text.strip())
+        break
+
+    if not timestamps:
+        raise RuntimeError(f"BOM WMTS layer {layer_id} has no published time values")
+
+    # Capabilities are normally ascending. Sorting defensively keeps the latest
+    # frame deterministic if upstream ordering ever changes.
+    timestamps = sorted(set(timestamps))
+    latest = default_timestamp if default_timestamp in timestamps else timestamps[-1]
+    return matrix_set, timestamps, latest
+
+
+def _tile_matrices(root: ET.Element, matrix_set_id: str) -> list[TileMatrix]:
+    matrix_set = _find_identified_element(root, "TileMatrixSet", matrix_set_id)
+    matrices: list[TileMatrix] = []
+
+    for element in _descendants(matrix_set, "TileMatrix"):
+        identifier = _child_text(element, "Identifier")
+        scale = _child_text(element, "ScaleDenominator")
+        top_left = _child_text(element, "TopLeftCorner")
+        tile_width = _child_text(element, "TileWidth")
+        tile_height = _child_text(element, "TileHeight")
+        matrix_width = _child_text(element, "MatrixWidth")
+        matrix_height = _child_text(element, "MatrixHeight")
+
+        if not all((identifier, scale, top_left, tile_width, tile_height, matrix_width, matrix_height)):
+            continue
+
+        coords = top_left.split()
+        if len(coords) != 2:
+            continue
+
+        matrices.append(
+            TileMatrix(
+                identifier=identifier,
+                scale_denominator=float(scale),
+                top_left_x=float(coords[0]),
+                top_left_y=float(coords[1]),
+                tile_width=int(tile_width),
+                tile_height=int(tile_height),
+                matrix_width=int(matrix_width),
+                matrix_height=int(matrix_height),
+            )
+        )
+
+    if not matrices:
+        raise RuntimeError(f"BOM WMTS matrix set {matrix_set_id} has no usable matrices")
+    return matrices
+
+
+def _project_bounds(bounds: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    min_lon, min_lat, max_lon, max_lat = bounds
+    transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+    min_x, min_y = transformer.transform(min_lon, min_lat)
+    max_x, max_y = transformer.transform(max_lon, max_lat)
+    return min(min_x, max_x), min(min_y, max_y), max(min_x, max_x), max(min_y, max_y)
+
+
+def _tile_range(
+    matrix: TileMatrix,
+    projected_bounds: tuple[float, float, float, float],
+) -> tuple[int, int, int, int] | None:
+    min_x, min_y, max_x, max_y = projected_bounds
+    span_x = matrix.tile_span_x
+    span_y = matrix.tile_span_y
+
+    col0 = math.floor((min_x - matrix.top_left_x) / span_x)
+    col1 = math.floor((max_x - matrix.top_left_x) / span_x)
+    row0 = math.floor((matrix.top_left_y - max_y) / span_y)
+    row1 = math.floor((matrix.top_left_y - min_y) / span_y)
+
+    col0 = max(0, col0)
+    row0 = max(0, row0)
+    col1 = min(matrix.matrix_width - 1, col1)
+    row1 = min(matrix.matrix_height - 1, row1)
+
+    if col0 > col1 or row0 > row1:
+        return None
+    return col0, col1, row0, row1
+
+
+def _matrix_sort_key(matrix: TileMatrix) -> float:
+    try:
+        return float(matrix.identifier)
+    except ValueError:
+        return -matrix.scale_denominator
+
+
+def _choose_matrix(
+    matrices: list[TileMatrix],
+    projected_bounds: tuple[float, float, float, float],
+) -> tuple[TileMatrix, tuple[int, int, int, int]]:
+    candidates = sorted(matrices, key=_matrix_sort_key, reverse=True)
+    fallback = None
+
+    for matrix in candidates:
+        tile_range = _tile_range(matrix, projected_bounds)
+        if tile_range is None:
+            continue
+        col0, col1, row0, row1 = tile_range
+        count = (col1 - col0 + 1) * (row1 - row0 + 1)
+        if fallback is None:
+            fallback = (matrix, tile_range)
+        if count <= config.BOM_RADAR_MAX_TILES:
+            return matrix, tile_range
+
+    if fallback is not None:
+        return fallback
+    raise RuntimeError("Requested warning extent does not intersect BOM radar WMTS coverage")
+
+
+def _tile_url(
+    layer_id: str,
+    matrix_set: str,
+    matrix: str,
+    row: int,
+    col: int,
+    timestamp: str,
+) -> str:
+    params = {
+        "SERVICE": "WMTS",
+        "REQUEST": "GetTile",
+        "VERSION": "1.0.0",
+        "LAYER": layer_id,
+        "STYLE": "default",
+        "FORMAT": "image/png",
+        "TILEMATRIXSET": matrix_set,
+        "TILEMATRIX": matrix,
+        "TILEROW": str(row),
+        "TILECOL": str(col),
+        "time": timestamp,
+    }
+    request = requests.Request("GET", config.BOM_RADAR_WMTS_URL, params=params).prepare()
+    return request.url
+
+
+def _fetch_tile(url: str) -> Image.Image:
+    response = _session().get(url, timeout=config.HTTP_TIMEOUT)
+    response.raise_for_status()
+    content_type = response.headers.get("Content-Type", "").lower()
+    if "image" not in content_type:
+        raise RuntimeError(f"BOM radar tile returned {content_type or 'unknown content type'}")
+    return Image.open(BytesIO(response.content)).convert("RGBA")
+
+
+def _mosaic_tiles(
+    layer_id: str,
+    matrix_set_id: str,
+    matrix: TileMatrix,
+    tile_range: tuple[int, int, int, int],
+    timestamp: str,
+) -> tuple[Image.Image, int]:
+    col0, col1, row0, row1 = tile_range
+    cols = col1 - col0 + 1
+    rows = row1 - row0 + 1
+    mosaic = Image.new("RGBA", (cols * matrix.tile_width, rows * matrix.tile_height), (0, 0, 0, 0))
+
+    tasks: dict = {}
+    with ThreadPoolExecutor(max_workers=max(1, config.BOM_RADAR_TILE_WORKERS)) as pool:
+        for row in range(row0, row1 + 1):
+            for col in range(col0, col1 + 1):
+                url = _tile_url(layer_id, matrix_set_id, matrix.identifier, row, col, timestamp)
+                tasks[pool.submit(_fetch_tile, url)] = (row, col)
+
+        for future in as_completed(tasks):
+            row, col = tasks[future]
+            tile = future.result()
+            if tile.size != (matrix.tile_width, matrix.tile_height):
+                tile = tile.resize((matrix.tile_width, matrix.tile_height), Image.Resampling.BILINEAR)
+            x = (col - col0) * matrix.tile_width
+            y = (row - row0) * matrix.tile_height
+            mosaic.alpha_composite(tile, (x, y))
+
+    return mosaic, len(tasks)
+
+
+def _crop_to_bounds(
+    mosaic: Image.Image,
+    matrix: TileMatrix,
+    tile_range: tuple[int, int, int, int],
+    projected_bounds: tuple[float, float, float, float],
+) -> Image.Image:
+    col0, _, row0, _ = tile_range
+    min_x, min_y, max_x, max_y = projected_bounds
+
+    mosaic_left = matrix.top_left_x + col0 * matrix.tile_span_x
+    mosaic_top = matrix.top_left_y - row0 * matrix.tile_span_y
+
+    px_per_m_x = matrix.tile_width / matrix.tile_span_x
+    px_per_m_y = matrix.tile_height / matrix.tile_span_y
+
+    left = int(round((min_x - mosaic_left) * px_per_m_x))
+    right = int(round((max_x - mosaic_left) * px_per_m_x))
+    top = int(round((mosaic_top - max_y) * px_per_m_y))
+    bottom = int(round((mosaic_top - min_y) * px_per_m_y))
+
+    left = max(0, min(mosaic.width - 1, left))
+    right = max(left + 1, min(mosaic.width, right))
+    top = max(0, min(mosaic.height - 1, top))
+    bottom = max(top + 1, min(mosaic.height, bottom))
+
+    return mosaic.crop((left, top, right, bottom))
+
+
+def fetch_bom_radar(bounds: tuple[float, float, float, float]) -> RadarFrame:
+    if not config.BOM_RADAR_WMTS_URL or not config.BOM_RADAR_WMTS_CAPABILITIES_URL:
+        raise RuntimeError("BOM radar WMTS is not configured")
+
+    capabilities_response = _session().get(
+        config.BOM_RADAR_WMTS_CAPABILITIES_URL,
+        timeout=config.HTTP_TIMEOUT,
+    )
+    capabilities_response.raise_for_status()
+    root = ET.fromstring(capabilities_response.content)
+
+    matrix_set_id, _timestamps, latest_timestamp = _layer_metadata(
+        root,
+        config.BOM_RADAR_WMTS_LAYER,
+    )
+    if latest_timestamp is None:
+        raise RuntimeError("BOM radar WMTS did not advertise a latest timestamp")
+
+    matrices = _tile_matrices(root, matrix_set_id)
+    projected_bounds = _project_bounds(bounds)
+    matrix, tile_range = _choose_matrix(matrices, projected_bounds)
+
+    mosaic, tile_count = _mosaic_tiles(
+        config.BOM_RADAR_WMTS_LAYER,
+        matrix_set_id,
+        matrix,
+        tile_range,
+        latest_timestamp,
+    )
+    image = _crop_to_bounds(mosaic, matrix, tile_range, projected_bounds)
+
+    return RadarFrame(
+        image=image,
+        bounds=bounds,
+        timestamp=latest_timestamp,
+        layer=config.BOM_RADAR_WMTS_LAYER,
+        tile_matrix=matrix.identifier,
+        tile_count=tile_count,
+    )
