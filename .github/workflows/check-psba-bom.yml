@@ -1,0 +1,42 @@
+name: Check legacy PSBA BOM service
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/check_psba.py"
+      - ".github/workflows/check-psba-bom.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install requests Pillow
+
+      - name: Check PSBA BOM service
+        run: python -m src.check_psba
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: psba-bom-diagnostics
+          path: diagnostics/psba
+          if-no-files-found: warn
+          retention-days: 7
