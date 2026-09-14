@@ -72,14 +72,36 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A generated
-          if git diff --cached --quiet; then
-            echo "No generated output changes to publish."
-          else
+
+          rm -rf /tmp/mapping-generated
+          mkdir -p /tmp/mapping-generated
+          cp -a generated/. /tmp/mapping-generated/
+
+          for attempt in 1 2 3; do
+            echo "Publish attempt $attempt"
+            git fetch origin main
+            git reset --hard origin/main
+
+            rm -rf generated
+            mkdir -p generated
+            cp -a /tmp/mapping-generated/. generated/
+
+            git add -A generated
+            if git diff --cached --quiet; then
+              echo "No generated output changes to publish."
+              exit 0
+            fi
+
             git commit -m "Update generated warning maps"
-            git pull --rebase origin main
-            git push origin HEAD:main
-          fi
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+
+            echo "Main advanced during publish; retrying against the newest branch state."
+          done
+
+          echo "Failed to publish generated output after 3 attempts."
+          exit 1
 
       - name: Fail after publishing source error
         if: steps.generate.outcome == 'failure'
