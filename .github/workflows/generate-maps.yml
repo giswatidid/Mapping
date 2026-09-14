@@ -10,29 +10,30 @@ on:
     paths:
       - "src/**"
       - "tests/**"
-      - "site/**"
+      - "index.html"
+      - "app.js"
+      - "styles.css"
+      - "config.js"
+      - ".nojekyll"
       - "requirements.txt"
       - ".github/workflows/generate-maps.yml"
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: severe-thunderstorm-maps
   cancel-in-progress: true
 
 jobs:
-  generate-and-deploy:
+  generate:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -57,22 +58,18 @@ jobs:
       - name: Show generation manifest
         if: always()
         run: |
-          if [ -f site/generated/manifest.json ]; then
-            cat site/generated/manifest.json
+          if [ -f generated/manifest.json ]; then
+            cat generated/manifest.json
           fi
 
-      - name: Check GitHub Pages configuration
-        id: pages
-        continue-on-error: true
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages artifact
-        if: steps.pages.outcome == 'success'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-
-      - name: Deploy to GitHub Pages
-        if: steps.pages.outcome == 'success'
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Publish latest generated output
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A generated
+          if git diff --cached --quiet; then
+            echo "No generated output changes to publish."
+          else
+            git commit -m "Update generated warning maps"
+            git push origin HEAD:main
+          fi
