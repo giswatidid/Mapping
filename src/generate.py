@@ -45,8 +45,9 @@ def write_manifest(payload: dict) -> None:
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
-def demo_warning() -> gpd.GeoDataFrame:
-    polygon = Polygon(
+def demo_warning(count: int = 1) -> gpd.GeoDataFrame:
+    """Return clearly labelled synthetic QLD warning geometry for render testing."""
+    seq = Polygon(
         [
             (152.25, -28.15),
             (153.35, -28.05),
@@ -57,18 +58,40 @@ def demo_warning() -> gpd.GeoDataFrame:
             (152.25, -28.15),
         ]
     )
-    return gpd.GeoDataFrame(
-        [
+
+    rows = [
+        {
+            "warning_id": "DEMO-SEQ",
+            "product_id": "IDQ21035",
+            "headline": "DEMO ONLY — Southeast Queensland Severe Thunderstorm Warning",
+            "issued": aest_now(),
+            "geometry": seq,
+        }
+    ]
+
+    if count >= 2:
+        central = Polygon(
+            [
+                (147.10, -24.85),
+                (149.55, -24.70),
+                (150.05, -22.85),
+                (148.65, -21.85),
+                (146.85, -22.45),
+                (146.35, -23.90),
+                (147.10, -24.85),
+            ]
+        )
+        rows.append(
             {
-                "warning_id": "DEMO-SEQ",
-                "headline": "DEMO ONLY — Synthetic Severe Thunderstorm Warning",
+                "warning_id": "DEMO-CENTRAL",
+                "product_id": "IDQ21033",
+                "headline": "DEMO ONLY — Central Queensland Severe Thunderstorm Warning",
                 "issued": aest_now(),
-                "geometry": polygon,
+                "geometry": central,
             }
-        ],
-        geometry="geometry",
-        crs="EPSG:4326",
-    )
+        )
+
+    return gpd.GeoDataFrame(rows[: max(1, count)], geometry="geometry", crs="EPSG:4326")
 
 
 def build_warning_metadata(warnings: gpd.GeoDataFrame) -> list[dict]:
@@ -94,12 +117,12 @@ def build_warning_metadata(warnings: gpd.GeoDataFrame) -> list[dict]:
     return result
 
 
-def run(demo: bool = False) -> int:
+def run(demo: bool = False, demo_count: int = 1) -> int:
     clean_output()
     generated_at = aest_now()
 
     if demo:
-        warnings = demo_warning()
+        warnings = demo_warning(count=demo_count)
         warning_state = SourceState(
             status="demo",
             message="Synthetic development geometry; not live Bureau of Meteorology data.",
@@ -264,10 +287,17 @@ def main() -> None:
     parser.add_argument(
         "--demo",
         action="store_true",
-        help="Use a clearly labelled synthetic warning polygon for renderer development.",
+        help="Use clearly labelled synthetic warning polygons for renderer development.",
+    )
+    parser.add_argument(
+        "--demo-count",
+        type=int,
+        choices=(1, 2),
+        default=1,
+        help="Number of synthetic simultaneous warnings to render in demo mode.",
     )
     args = parser.parse_args()
-    raise SystemExit(run(demo=args.demo))
+    raise SystemExit(run(demo=args.demo, demo_count=args.demo_count))
 
 
 if __name__ == "__main__":
