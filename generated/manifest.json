@@ -1,0 +1,24 @@
+{
+  "generated_at": "2026-09-14T15:24:37+10:00",
+  "mode": "live",
+  "status": "no_active_warnings",
+  "sources": {
+    "warnings": {
+      "status": "no_active_warnings",
+      "message": "No active Queensland severe thunderstorm CAP warnings remained after validity filtering.",
+      "timestamp": "2026-09-14T05:24:46Z",
+      "url": "https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/rss.xml",
+      "count": 0
+    },
+    "outages": null,
+    "lgas": null,
+    "radar": {
+      "status": "not_checked",
+      "url": null,
+      "layer": null
+    }
+  },
+  "warnings": [],
+  "maps": [],
+  "errors": []
+}
