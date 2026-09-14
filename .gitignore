@@ -3,5 +3,3 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .DS_Store
-site/generated/*.png
-site/generated/manifest.json
