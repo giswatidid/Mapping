@@ -40,13 +40,12 @@ BOM_RADAR_IMAGESERVER_RENDERER = os.getenv(
 ).strip()
 BOM_RADAR_IMAGESERVER_WIDTH = int(os.getenv("BOM_RADAR_IMAGESERVER_WIDTH", "1600"))
 
-# Public Queensland Government ArcGIS proxy for BOM operational layers.
-# This service exposes BOM's live radar rain-rate layer through a normal
-# ArcGIS MapServer export operation, which is ideal for static map generation.
-BOM_RADAR_ARCGIS_EXPORT_URL = os.getenv(
-    "BOM_RADAR_ARCGIS_EXPORT_URL",
-    "https://mapping.psba.qld.gov.au/AAMGeoservices/rest/services/BOMWMSv2/MapServer/export",
-).strip()
+# Legacy Queensland Government PSBA ArcGIS proxy for BOM operational layers.
+# It is disabled by default because live tests from GitHub Actions in Sep 2026
+# were terminated by the remote host for the service root, layers 37/58 and
+# Export Map requests. Set explicitly only if this endpoint is known to work
+# from the deployment environment.
+BOM_RADAR_ARCGIS_EXPORT_URL = os.getenv("BOM_RADAR_ARCGIS_EXPORT_URL", "").strip()
 BOM_RADAR_ARCGIS_LAYER = int(os.getenv("BOM_RADAR_ARCGIS_LAYER", "37"))
 BOM_RADAR_ARCGIS_WIDTH = int(os.getenv("BOM_RADAR_ARCGIS_WIDTH", "1600"))
 
