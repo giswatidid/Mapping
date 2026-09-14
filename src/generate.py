@@ -142,9 +142,21 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
             "lgas": None,
             "radar": {
                 "status": "not_checked",
-                "url": config.BOM_RADAR_WMTS_URL or None,
-                "capabilities_url": config.BOM_RADAR_WMTS_CAPABILITIES_URL or None,
-                "layer": config.BOM_RADAR_WMTS_LAYER or None,
+                "provider": (
+                    "gis2web_wms"
+                    if config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER
+                    else ("experimental_wmts" if config.BOM_RADAR_WMTS_ENABLED else None)
+                ),
+                "url": (
+                    config.BOM_RADAR_WMS_URL
+                    if config.BOM_RADAR_WMS_URL
+                    else (config.BOM_RADAR_WMTS_URL if config.BOM_RADAR_WMTS_ENABLED else None)
+                ),
+                "layer": (
+                    config.BOM_RADAR_WMS_LAYER
+                    if config.BOM_RADAR_WMS_LAYER
+                    else (config.BOM_RADAR_WMTS_LAYER if config.BOM_RADAR_WMTS_ENABLED else None)
+                ),
             },
         },
         "warnings": [],
@@ -211,17 +223,27 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                 )
             )
 
-    radar_configured = bool(
-        config.BOM_RADAR_WMTS_URL
-        and config.BOM_RADAR_WMTS_CAPABILITIES_URL
+    wms_configured = bool(config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER)
+    wmts_configured = bool(
+        config.BOM_RADAR_WMTS_ENABLED
+        and config.BOM_RADAR_WMTS_URL
         and config.BOM_RADAR_WMTS_LAYER
     )
-    if radar_configured:
+    radar_configured = wms_configured or wmts_configured
+
+    if wms_configured:
         manifest["sources"]["radar"]["status"] = "configured"
-        manifest["sources"]["radar"]["message"] = "Official BOM public WMTS radar service."
+        manifest["sources"]["radar"]["provider"] = "gis2web_wms"
+        manifest["sources"]["radar"]["message"] = "BOM Registered User GIS2Web WMS."
+    elif wmts_configured:
+        manifest["sources"]["radar"]["status"] = "configured"
+        manifest["sources"]["radar"]["provider"] = "experimental_wmts"
+        manifest["sources"]["radar"]["message"] = "Experimental BOM WMTS fallback."
     else:
         manifest["sources"]["radar"]["status"] = "source_unconfigured"
-        manifest["sources"]["radar"]["message"] = "BOM radar WMTS configuration is incomplete."
+        manifest["sources"]["radar"]["message"] = (
+            "BOM Registered User GIS2Web WMS credentials/endpoint are not configured."
+        )
 
     radar_error: str | None = None
 
@@ -273,6 +295,7 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                 manifest["sources"]["radar"]["status"] = "ok"
                 manifest["sources"]["radar"]["timestamp"] = radar_info.get("radar_time")
                 manifest["sources"]["radar"]["tile_matrix"] = radar_info.get("radar_tile_matrix")
+                manifest["sources"]["radar"]["provider"] = radar_info.get("radar_provider")
             except Exception as exc:
                 radar_error = f"{type(exc).__name__}: {exc}"
                 manifest["sources"]["radar"]["status"] = "error"
