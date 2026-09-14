@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from io import BytesIO
+from datetime import datetime, timedelta, timezone
 import math
 import xml.etree.ElementTree as ET
 
@@ -65,6 +66,46 @@ REFLECTIVITY_LEGEND = [
     ("61 - 64", (120, 0, 0, 255)),
     ("> 64", (40, 0, 0, 255)),
 ]
+
+
+# BOM's observed-rain WMTS uses a cropped Web Mercator Google-compatible
+# matrix. These values are published by the service and are also independently
+# checked by current BOM radar clients. Keeping this fallback means the renderer
+# can continue to discover live frames even when the optional capabilities
+# document is unavailable.
+_WORLD_EXTENT = 40075016.68557849
+_STATIC_MATRIX_GEOMETRY = [
+    (0, 11584952.0, 34168990.685578, 1, 1),
+    (1, 11584952.0, 14131482.342789, 1, 1),
+    (2, 11584952.0, 4112728.171395, 1, 1),
+    (3, 11584952.0, 4112728.171395, 2, 2),
+    (4, 11584952.0, 1608039.628546, 3, 3),
+    (5, 11584952.0, 355695.357122, 6, 5),
+    (6, 11584952.0, -270476.778591, 11, 9),
+    (7, 11584952.0, -583562.846447, 22, 17),
+    (8, 11584952.0, -740105.880375, 43, 33),
+]
+
+
+def _static_matrices() -> list[TileMatrix]:
+    result: list[TileMatrix] = []
+    for z, top_left_x, top_left_y, width, height in _STATIC_MATRIX_GEOMETRY:
+        tile_span = _WORLD_EXTENT / (2 ** z)
+        pixel_size = tile_span / 256
+        scale = pixel_size / 0.00028
+        result.append(
+            TileMatrix(
+                identifier=str(z),
+                scale_denominator=scale,
+                top_left_x=top_left_x,
+                top_left_y=top_left_y,
+                tile_width=256,
+                tile_height=256,
+                matrix_width=width,
+                matrix_height=height,
+            )
+        )
+    return result
 
 
 def _local_name(tag: str) -> str:
@@ -330,27 +371,90 @@ def _crop_to_bounds(
     return mosaic.crop((left, top, right, bottom))
 
 
+def _fallback_timestamps(count: int = 12) -> list[str]:
+    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    minute = (now.minute // 5) * 5
+    snapped = now.replace(minute=minute) - timedelta(minutes=10)
+    return [
+        (snapped - timedelta(minutes=5 * index)).isoformat().replace("+00:00", "Z")
+        for index in range(count)
+    ]
+
+
+def _probe_timestamp(
+    layer_id: str,
+    matrix_set_id: str,
+    matrix: TileMatrix,
+    tile_range: tuple[int, int, int, int],
+    candidates: list[str],
+) -> str:
+    col0, col1, row0, row1 = tile_range
+    col = (col0 + col1) // 2
+    row = (row0 + row1) // 2
+
+    session = _session()
+    for timestamp in candidates:
+        url = _tile_url(layer_id, matrix_set_id, matrix.identifier, row, col, timestamp)
+        try:
+            response = session.get(url, timeout=config.HTTP_TIMEOUT)
+            if not response.ok or "image" not in response.headers.get("Content-Type", "").lower():
+                continue
+            image = Image.open(BytesIO(response.content))
+            image.verify()
+            return timestamp
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        f"No recent BOM radar tile was available for {layer_id}; "
+        f"probed {len(candidates)} recent 5-minute frames"
+    )
+
+
 def fetch_bom_radar(bounds: tuple[float, float, float, float]) -> RadarFrame:
-    if not config.BOM_RADAR_WMTS_URL or not config.BOM_RADAR_WMTS_CAPABILITIES_URL:
+    if not config.BOM_RADAR_WMTS_URL:
         raise RuntimeError("BOM radar WMTS is not configured")
 
-    capabilities_response = _session().get(
-        config.BOM_RADAR_WMTS_CAPABILITIES_URL,
-        timeout=config.HTTP_TIMEOUT,
-    )
-    capabilities_response.raise_for_status()
-    root = ET.fromstring(capabilities_response.content)
+    matrix_set_id = "GoogleMapsCompatible_BoM"
+    matrices = _static_matrices()
+    advertised_latest = None
 
-    matrix_set_id, _timestamps, latest_timestamp = _layer_metadata(
-        root,
-        config.BOM_RADAR_WMTS_LAYER,
-    )
-    if latest_timestamp is None:
-        raise RuntimeError("BOM radar WMTS did not advertise a latest timestamp")
+    # Capabilities are useful when available, but live tile discovery does not
+    # depend on them. BOM's public mapping edge can return 404 for the document
+    # while the KVP GetTile service remains available.
+    if config.BOM_RADAR_WMTS_CAPABILITIES_URL:
+        try:
+            capabilities_response = _session().get(
+                config.BOM_RADAR_WMTS_CAPABILITIES_URL,
+                timeout=config.HTTP_TIMEOUT,
+            )
+            if capabilities_response.ok:
+                root = ET.fromstring(capabilities_response.content)
+                matrix_set_id, _timestamps, advertised_latest = _layer_metadata(
+                    root,
+                    config.BOM_RADAR_WMTS_LAYER,
+                )
+                matrices = _tile_matrices(root, matrix_set_id)
+        except Exception:
+            pass
 
-    matrices = _tile_matrices(root, matrix_set_id)
     projected_bounds = _project_bounds(bounds)
     matrix, tile_range = _choose_matrix(matrices, projected_bounds)
+
+    candidates: list[str] = []
+    if advertised_latest:
+        candidates.append(advertised_latest)
+    for timestamp in _fallback_timestamps():
+        if timestamp not in candidates:
+            candidates.append(timestamp)
+
+    latest_timestamp = _probe_timestamp(
+        config.BOM_RADAR_WMTS_LAYER,
+        matrix_set_id,
+        matrix,
+        tile_range,
+        candidates,
+    )
 
     mosaic, tile_count = _mosaic_tiles(
         config.BOM_RADAR_WMTS_LAYER,
