@@ -1,0 +1,67 @@
+name: Test demo map generation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/generate.py"
+      - "src/render.py"
+      - "src/sources.py"
+      - "tests/**"
+      - ".github/workflows/test-demo-maps.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Generate one-warning demo
+        run: |
+          python -m src.generate --demo --demo-count 1
+          mkdir -p demo-artifacts/single-warning
+          cp generated/manifest.json demo-artifacts/single-warning/
+          cp generated/*.png demo-artifacts/single-warning/ || true
+
+      - name: Generate two-warning demo
+        run: |
+          python -m src.generate --demo --demo-count 2
+          mkdir -p demo-artifacts/two-warnings
+          cp generated/manifest.json demo-artifacts/two-warnings/
+          cp generated/*.png demo-artifacts/two-warnings/ || true
+
+      - name: Summarise demo outputs
+        run: |
+          echo "Single-warning manifest:"
+          cat demo-artifacts/single-warning/manifest.json
+          echo
+          echo "Two-warning manifest:"
+          cat demo-artifacts/two-warnings/manifest.json
+          echo
+          find demo-artifacts -maxdepth 2 -type f -printf "%p\n" | sort
+
+      - name: Upload demo maps
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapping-demo-maps
+          path: demo-artifacts
+          retention-days: 7
