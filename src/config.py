@@ -40,7 +40,7 @@ BOM_RADAR_WMS_WIDTH = int(os.getenv("BOM_RADAR_WMS_WIDTH", "1600"))
 # Experimental public WMTS fallback. It is retained because BOM's current web
 # map uses this product family, but it is NOT considered production-ready: our
 # GitHub-hosted tests currently cannot retrieve usable frames from it.
-BOM_RADAR_WMTS_ENABLED = os.getenv("BOM_RADAR_WMTS_ENABLED", "false").lower() in {"1", "true", "yes"}
+BOM_RADAR_WMTS_ENABLED = os.getenv("BOM_RADAR_WMTS_ENABLED", "true").lower() in {"1", "true", "yes"}
 BOM_RADAR_WMTS_URL = os.getenv(
     "BOM_RADAR_WMTS_URL",
     "https://api.bom.gov.au/apikey/v1/mapping/timeseries/wmts",
@@ -51,8 +51,9 @@ BOM_RADAR_WMTS_CAPABILITIES_URL = os.getenv(
 ).strip()
 BOM_RADAR_WMTS_LAYER = os.getenv(
     "BOM_RADAR_WMTS_LAYER",
-    "atm_surf_air_precip_reflectivity_dbz",
+    "atm_surf_air_precip_rate_1hr_total_mm_h",
 ).strip()
+BOM_RADAR_WMTS_LAG_MINUTES = int(os.getenv("BOM_RADAR_WMTS_LAG_MINUTES", "5"))
 BOM_RADAR_MAX_TILES = int(os.getenv("BOM_RADAR_MAX_TILES", "64"))
 BOM_RADAR_TILE_WORKERS = int(os.getenv("BOM_RADAR_TILE_WORKERS", "6"))
 
