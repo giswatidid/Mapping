@@ -1,6 +1,8 @@
 const els = {
   generate: document.querySelector("#generateButton"),
   refresh: document.querySelector("#refreshButton"),
+  theme: document.querySelector("#themeToggleBtn"),
+  statusCard: document.querySelector("#statusCard"),
   badge: document.querySelector("#statusBadge"),
   title: document.querySelector("#statusTitle"),
   message: document.querySelector("#statusMessage"),
@@ -19,22 +21,51 @@ function humanStatus(status) {
     ok: ["Current maps available", "ok"],
     partial: ["Maps generated with a source warning", "warning"],
     no_active_warnings: ["No active severe thunderstorm warnings", "ok"],
-    source_unconfigured: ["BOM warning source not configured", "warning"],
-    source_error: ["BOM warning source failed", "error"],
+    source_unconfigured: ["Warning source not configured", "warning"],
+    source_error: ["Warning source failed", "error"],
     generation_error: ["Map generation failed", "error"],
     starting: ["Generation starting", "warning"]
   };
   return map[status] || [status || "Unknown", "warning"];
 }
 
-function sourceText(source) {
+function sourceSeverity(source) {
+  if (!source) return "warning";
+  const status = String(source.status || "").toLowerCase();
+  if (status === "ok" || status === "no_active_warnings") return "ok";
+  if (status === "error" || status === "source_error") return "error";
+  return "warning";
+}
+
+function sourceLabel(source) {
   if (!source) return "Not checked";
-  const parts = [source.status || "unknown"];
+  const status = String(source.status || "unknown").replaceAll("_", " ");
+  return status;
+}
+
+function sourceDetail(source) {
+  if (!source) return "This source was not required for the current generation.";
+  const parts = [];
   if (source.count !== null && source.count !== undefined) {
     parts.push(String(source.count) + " feature" + (source.count === 1 ? "" : "s"));
   }
   if (source.message) parts.push(source.message);
-  return parts.join(" · ");
+  if (!parts.length && source.timestamp) parts.push("Checked " + source.timestamp);
+  return parts.join(" · ") || "Source checked.";
+}
+
+function formatGeneratedAt(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-AU", {
+    timeZone: "Australia/Brisbane",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date) + " AEST";
 }
 
 function makeMapCard(map, manifest) {
@@ -80,9 +111,13 @@ function makeMapCard(map, manifest) {
 
 function render(manifest) {
   currentManifest = manifest;
+
   const result = humanStatus(manifest.status);
-  els.badge.textContent = manifest.status || "unknown";
-  els.badge.className = "badge " + result[1];
+  const severity = result[1];
+
+  els.badge.textContent = String(manifest.status || "unknown").replaceAll("_", " ");
+  els.badge.className = "scope-badge " + severity;
+  els.statusCard.className = "scope-banner " + severity;
   els.title.textContent = result[0];
 
   const errors = manifest.errors || [];
@@ -96,7 +131,7 @@ function render(manifest) {
     els.message.textContent = "Latest published generation loaded.";
   }
 
-  els.generatedAt.textContent = manifest.generated_at || "—";
+  els.generatedAt.textContent = formatGeneratedAt(manifest.generated_at);
   els.warningCount.textContent = String((manifest.warnings || []).length);
   els.mode.textContent = manifest.mode || "—";
 
@@ -108,33 +143,54 @@ function render(manifest) {
       ? "No maps are required because there are no active warnings."
       : "No generated maps are currently available.";
   }
+
   maps.forEach(function(map) {
     els.maps.appendChild(makeMapCard(map, manifest));
   });
 
   els.sources.innerHTML = "";
   Object.entries(manifest.sources || {}).forEach(function(entry) {
+    const name = entry[0];
+    const source = entry[1];
+    const severityClass = sourceSeverity(source);
+
     const item = document.createElement("div");
-    item.className = "source-item";
+    item.className = "source-item " + severityClass;
+
+    const head = document.createElement("div");
+    head.className = "source-head";
+
     const strong = document.createElement("strong");
-    strong.textContent = entry[0];
-    const span = document.createElement("span");
-    span.textContent = sourceText(entry[1]);
-    item.appendChild(strong);
-    item.appendChild(span);
+    strong.textContent = name;
+
+    const status = document.createElement("span");
+    status.className = "source-status " + severityClass;
+    status.textContent = sourceLabel(source);
+
+    const detail = document.createElement("span");
+    detail.className = "source-detail";
+    detail.textContent = sourceDetail(source);
+
+    head.appendChild(strong);
+    head.appendChild(status);
+    item.appendChild(head);
+    item.appendChild(detail);
     els.sources.appendChild(item);
   });
 }
 
 async function loadManifest() {
   els.refresh.disabled = true;
+  els.refresh.textContent = "Refreshing…";
+
   try {
     const response = await fetch("generated/manifest.json?t=" + Date.now(), { cache: "no-store" });
     if (!response.ok) throw new Error("Manifest request returned HTTP " + response.status);
     render(await response.json());
   } catch (error) {
     els.badge.textContent = "unavailable";
-    els.badge.className = "badge error";
+    els.badge.className = "scope-badge error";
+    els.statusCard.className = "scope-banner error";
     els.title.textContent = "No generation manifest available";
     els.message.textContent = String(error);
     els.maps.innerHTML = "";
@@ -142,18 +198,13 @@ async function loadManifest() {
     els.empty.textContent = "The generation workflow has not published a manifest yet.";
   } finally {
     els.refresh.disabled = false;
+    els.refresh.textContent = "Refresh latest";
   }
 }
 
 async function generateMaps() {
   const dispatchUrl = (window.MAPPING_CONFIG && window.MAPPING_CONFIG.dispatchUrl) || "";
-  if (!dispatchUrl) {
-    els.badge.textContent = "setup required";
-    els.badge.className = "badge warning";
-    els.title.textContent = "One-click generation relay not connected yet";
-    els.message.textContent = "Scheduled generation is active. The website button will be enabled after a secure workflow-dispatch relay is connected.";
-    return;
-  }
+  if (!dispatchUrl) return;
 
   const previousGeneratedAt = currentManifest && currentManifest.generated_at;
   els.generate.disabled = true;
@@ -177,14 +228,56 @@ async function generateMaps() {
     throw new Error("Generation was requested, but a new published manifest was not detected.");
   } catch (error) {
     els.badge.textContent = "request failed";
-    els.badge.className = "badge error";
+    els.badge.className = "scope-badge error";
+    els.statusCard.className = "scope-banner error";
+    els.title.textContent = "Generation request failed";
     els.message.textContent = String(error);
   } finally {
     els.generate.disabled = false;
-    els.generate.textContent = "Generate Maps";
+    els.generate.textContent = "Generate maps";
   }
+}
+
+function setTheme(mode) {
+  const night = mode === "night";
+  document.body.classList.toggle("night-mode", night);
+  els.theme.classList.toggle("active", night);
+  els.theme.setAttribute("aria-pressed", String(night));
+  els.theme.textContent = night ? "Light mode" : "Night mode";
+
+  try {
+    localStorage.setItem("mappingTheme", night ? "night" : "light");
+  } catch (_) {}
+}
+
+function initialiseTheme() {
+  let stored = null;
+  try {
+    stored = localStorage.getItem("mappingTheme");
+  } catch (_) {}
+
+  if (stored === "night" || stored === "light") {
+    setTheme(stored);
+    return;
+  }
+
+  setTheme("light");
+}
+
+function initialiseGenerateButton() {
+  const dispatchUrl = (window.MAPPING_CONFIG && window.MAPPING_CONFIG.dispatchUrl) || "";
+  if (dispatchUrl) return;
+
+  els.generate.disabled = true;
+  els.generate.title = "Manual generation will be enabled when the secure workflow trigger is connected.";
 }
 
 els.refresh.addEventListener("click", loadManifest);
 els.generate.addEventListener("click", generateMaps);
+els.theme.addEventListener("click", function() {
+  setTheme(document.body.classList.contains("night-mode") ? "light" : "night");
+});
+
+initialiseTheme();
+initialiseGenerateButton();
 loadManifest();
