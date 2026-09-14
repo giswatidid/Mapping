@@ -2,42 +2,14 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from io import BytesIO
-from datetime import datetime, timedelta, timezone
-import json
 import math
-import xml.etree.ElementTree as ET
 
 from PIL import Image
-from pyproj import Transformer
 import requests
 
 from . import config
-
-
-@dataclass(frozen=True)
-class TileMatrix:
-    identifier: str
-    scale_denominator: float
-    top_left_x: float
-    top_left_y: float
-    tile_width: int
-    tile_height: int
-    matrix_width: int
-    matrix_height: int
-
-    @property
-    def pixel_size_m(self) -> float:
-        # OGC WMTS defines scale denominator using a 0.28 mm display pixel.
-        return self.scale_denominator * 0.00028
-
-    @property
-    def tile_span_x(self) -> float:
-        return self.pixel_size_m * self.tile_width
-
-    @property
-    def tile_span_y(self) -> float:
-        return self.pixel_size_m * self.tile_height
 
 
 @dataclass
@@ -52,6 +24,7 @@ class RadarFrame:
     legend_kind: str
 
 
+# BOM rainfall-intensity palette retained for the optional registered WMS path.
 RAIN_RATE_LEGEND = [
     ("less than 2", (245, 245, 255, 255)),
     ("2 - 3", (180, 180, 255, 255)),
@@ -70,150 +43,33 @@ RAIN_RATE_LEGEND = [
     ("400+", (40, 0, 0, 255)),
 ]
 
-
-REFLECTIVITY_LEGEND = [
-    ("12 - 23", (245, 245, 255, 255)),
-    ("23 - 28", (180, 180, 255, 255)),
-    ("28 - 31", (120, 120, 255, 255)),
-    ("31 - 34", (20, 20, 255, 255)),
-    ("34 - 37", (0, 216, 195, 255)),
-    ("37 - 40", (0, 150, 144, 255)),
-    ("40 - 43", (0, 102, 102, 255)),
-    ("43 - 46", (255, 255, 0, 255)),
-    ("46 - 49", (255, 200, 0, 255)),
-    ("49 - 52", (255, 150, 0, 255)),
-    ("52 - 55", (255, 100, 0, 255)),
-    ("55 - 58", (255, 0, 0, 255)),
-    ("58 - 61", (200, 0, 0, 255)),
-    ("61 - 64", (120, 0, 0, 255)),
-    ("> 64", (40, 0, 0, 255)),
+# RainViewer Universal Blue colour scheme (scheme 2), sampled at meaningful
+# reflectivity thresholds from RainViewer's published colour table.
+RAINVIEWER_REFLECTIVITY_LEGEND = [
+    ("10", (206, 192, 135, 150)),
+    ("15", (136, 221, 238, 255)),
+    ("20", (0, 163, 224, 255)),
+    ("25", (0, 119, 170, 255)),
+    ("30", (0, 85, 136, 255)),
+    ("35", (255, 238, 0, 255)),
+    ("40", (255, 170, 0, 255)),
+    ("45", (255, 68, 0, 255)),
+    ("50", (193, 0, 0, 255)),
+    ("55", (255, 170, 255, 255)),
+    ("60", (255, 119, 255, 255)),
+    ("65+", (255, 255, 255, 255)),
 ]
 
 
-# BOM's observed-rain WMTS uses a cropped Web Mercator Google-compatible
-# matrix. These values are published by the service and are also independently
-# checked by current BOM radar clients. Keeping this fallback means the renderer
-# can continue to discover live frames even when the optional capabilities
-# document is unavailable.
-_WORLD_EXTENT = 40075016.68557849
-_STATIC_MATRIX_GEOMETRY = [
-    (0, 11584952.0, 34168990.685578, 1, 1),
-    (1, 11584952.0, 14131482.342789, 1, 1),
-    (2, 11584952.0, 4112728.171395, 1, 1),
-    (3, 11584952.0, 4112728.171395, 2, 2),
-    (4, 11584952.0, 1608039.628546, 3, 3),
-    (5, 11584952.0, 355695.357122, 6, 5),
-    (6, 11584952.0, -270476.778591, 11, 9),
-    (7, 11584952.0, -583562.846447, 22, 17),
-    (8, 11584952.0, -740105.880375, 43, 33),
-]
-
-
-def _fetch_public_imageserver(bounds: tuple[float, float, float, float]) -> RadarFrame:
-    if not config.BOM_RADAR_IMAGESERVER_EXPORT_URL:
-        raise RuntimeError("Public BOM radar ImageServer is not configured")
-
-    minx, miny, maxx, maxy = bounds
-    width = max(600, config.BOM_RADAR_IMAGESERVER_WIDTH)
-    ratio = max(0.30, min(3.0, (maxy - miny) / max(maxx - minx, 0.001)))
-    height = max(500, min(2400, int(round(width * ratio))))
-
-    params = {
-        "bbox": f"{minx},{miny},{maxx},{maxy}",
-        "bboxSR": "4326",
-        "imageSR": "4326",
-        "size": f"{width},{height}",
-        "format": "png32",
-        "transparent": "true",
-        "f": "image",
-    }
-    if config.BOM_RADAR_IMAGESERVER_RENDERER:
-        params["renderingRule"] = json.dumps(
-            {"rasterFunction": config.BOM_RADAR_IMAGESERVER_RENDERER},
-            separators=(",", ":"),
-        )
-
-    response = requests.get(
-        config.BOM_RADAR_IMAGESERVER_EXPORT_URL,
-        params=params,
-        timeout=config.HTTP_TIMEOUT,
-        headers={
+def _session() -> requests.Session:
+    session = requests.Session()
+    session.headers.update(
+        {
             "User-Agent": config.USER_AGENT,
-            "Accept": "image/png,image/*,*/*",
-        },
+            "Accept": "image/png,application/json,*/*",
+        }
     )
-    response.raise_for_status()
-
-    content_type = response.headers.get("Content-Type", "").lower()
-    if "image" not in content_type:
-        snippet = response.text[:300].replace("\n", " ") if response.text else ""
-        raise RuntimeError(
-            f"BOM public radar ImageServer returned {content_type or 'unknown content type'}"
-            + (f": {snippet}" if snippet else "")
-        )
-
-    return RadarFrame(
-        image=Image.open(BytesIO(response.content)).convert("RGBA"),
-        bounds=bounds,
-        timestamp=response.headers.get("Last-Modified") or None,
-        layer="atm_surf_air_precip_rate_1hr_total_mm_h",
-        tile_matrix="ImageServer export",
-        tile_count=1,
-        provider="bom_public_imageserver",
-        legend_kind="rain_rate",
-    )
-
-
-def _fetch_public_arcgis(bounds: tuple[float, float, float, float]) -> RadarFrame:
-    if not config.BOM_RADAR_ARCGIS_EXPORT_URL:
-        raise RuntimeError("Public Queensland BOM radar ArcGIS service is not configured")
-
-    minx, miny, maxx, maxy = bounds
-    width = max(600, config.BOM_RADAR_ARCGIS_WIDTH)
-    ratio = max(0.30, min(3.0, (maxy - miny) / max(maxx - minx, 0.001)))
-    height = max(500, min(2400, int(round(width * ratio))))
-
-    params = {
-        "bbox": f"{minx},{miny},{maxx},{maxy}",
-        "bboxSR": "4326",
-        "imageSR": "4326",
-        "size": f"{width},{height}",
-        "dpi": "96",
-        "format": "png32",
-        "transparent": "true",
-        "layers": f"show:{config.BOM_RADAR_ARCGIS_LAYER}",
-        "f": "image",
-    }
-
-    response = requests.get(
-        config.BOM_RADAR_ARCGIS_EXPORT_URL,
-        params=params,
-        timeout=config.HTTP_TIMEOUT,
-        headers={
-            "User-Agent": config.USER_AGENT,
-            "Accept": "image/png,image/*,*/*",
-        },
-    )
-    response.raise_for_status()
-
-    content_type = response.headers.get("Content-Type", "").lower()
-    if "image" not in content_type:
-        snippet = response.text[:300].replace("\n", " ") if response.text else ""
-        raise RuntimeError(
-            f"Queensland BOM radar ArcGIS service returned {content_type or 'unknown content type'}"
-            + (f": {snippet}" if snippet else "")
-        )
-
-    return RadarFrame(
-        image=Image.open(BytesIO(response.content)).convert("RGBA"),
-        bounds=bounds,
-        timestamp=None,
-        layer=str(config.BOM_RADAR_ARCGIS_LAYER),
-        tile_matrix="ArcGIS export",
-        tile_count=1,
-        provider="qld_psba_bom_arcgis",
-        legend_kind="rain_rate",
-    )
+    return session
 
 
 def _wms_auth() -> tuple[str, str] | None:
@@ -242,7 +98,6 @@ def _fetch_registered_wms(bounds: tuple[float, float, float, float]) -> RadarFra
     }
 
     if version.startswith("1.3"):
-        # EPSG:4326 axis order under WMS 1.3.0 is latitude,longitude.
         params["CRS"] = "EPSG:4326"
         params["BBOX"] = f"{miny},{minx},{maxy},{maxx}"
     else:
@@ -263,19 +118,14 @@ def _fetch_registered_wms(bounds: tuple[float, float, float, float]) -> RadarFra
 
     content_type = response.headers.get("Content-Type", "").lower()
     if "image" not in content_type:
-        snippet = response.text[:300].replace("\n", " ") if response.text else ""
         raise RuntimeError(
             f"BOM GIS2Web WMS returned {content_type or 'unknown content type'}"
-            + (f": {snippet}" if snippet else "")
         )
 
-    image = Image.open(BytesIO(response.content)).convert("RGBA")
-    timestamp = response.headers.get("Last-Modified") or response.headers.get("Date")
-
     return RadarFrame(
-        image=image,
+        image=Image.open(BytesIO(response.content)).convert("RGBA"),
         bounds=bounds,
-        timestamp=timestamp,
+        timestamp=response.headers.get("Last-Modified") or response.headers.get("Date"),
         layer=config.BOM_RADAR_WMS_LAYER,
         tile_matrix="WMS",
         tile_count=1,
@@ -284,420 +134,161 @@ def _fetch_registered_wms(bounds: tuple[float, float, float, float]) -> RadarFra
     )
 
 
-def _static_matrices() -> list[TileMatrix]:
-    result: list[TileMatrix] = []
-    for z, top_left_x, top_left_y, width, height in _STATIC_MATRIX_GEOMETRY:
-        tile_span = _WORLD_EXTENT / (2 ** z)
-        pixel_size = tile_span / 256
-        scale = pixel_size / 0.00028
-        result.append(
-            TileMatrix(
-                identifier=str(z),
-                scale_denominator=scale,
-                top_left_x=top_left_x,
-                top_left_y=top_left_y,
-                tile_width=256,
-                tile_height=256,
-                matrix_width=width,
-                matrix_height=height,
-            )
-        )
-    return result
+def _world_xy(lon: float, lat: float, zoom: int) -> tuple[float, float]:
+    lat = max(-85.05112878, min(85.05112878, lat))
+    n = 2 ** zoom
+    x = (lon + 180.0) / 360.0 * n
+    rad = math.radians(lat)
+    y = (1.0 - math.asinh(math.tan(rad)) / math.pi) / 2.0 * n
+    return x, y
 
 
-def _local_name(tag: str) -> str:
-    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+def _tile_window(
+    bounds: tuple[float, float, float, float],
+    zoom: int,
+) -> tuple[int, int, int, int, float, float, float, float]:
+    minlon, minlat, maxlon, maxlat = bounds
+    x0f, y1f = _world_xy(minlon, minlat, zoom)
+    x1f, y0f = _world_xy(maxlon, maxlat, zoom)
+
+    n = 2 ** zoom
+    x0 = max(0, min(n - 1, math.floor(x0f)))
+    x1 = max(0, min(n - 1, math.floor(max(x0f, x1f - 1e-12))))
+    y0 = max(0, min(n - 1, math.floor(y0f)))
+    y1 = max(0, min(n - 1, math.floor(max(y0f, y1f - 1e-12))))
+
+    if x1 < x0 or y1 < y0:
+        raise RuntimeError("Requested radar bounds do not intersect Web Mercator tiles")
+
+    return x0, x1, y0, y1, x0f, x1f, y0f, y1f
 
 
-def _child_text(element: ET.Element, name: str) -> str | None:
-    for child in element:
-        if _local_name(child.tag) == name and child.text:
-            value = child.text.strip()
-            if value:
-                return value
-    return None
+def _choose_rainviewer_zoom(
+    bounds: tuple[float, float, float, float],
+) -> tuple[int, tuple[int, int, int, int, float, float, float, float]]:
+    for zoom in range(config.RAINVIEWER_MAX_ZOOM, 1, -1):
+        window = _tile_window(bounds, zoom)
+        x0, x1, y0, y1, *_ = window
+        tile_count = (x1 - x0 + 1) * (y1 - y0 + 1)
+        if tile_count <= config.RAINVIEWER_MAX_TILES:
+            return zoom, window
+
+    zoom = 1
+    return zoom, _tile_window(bounds, zoom)
 
 
-def _descendants(element: ET.Element, name: str):
-    for node in element.iter():
-        if _local_name(node.tag) == name:
-            yield node
-
-
-def _session() -> requests.Session:
-    session = requests.Session()
-    session.headers.update(
-        {
-            "User-Agent": config.USER_AGENT,
-            "Accept": "image/png,application/xml,text/xml,*/*",
-        }
-    )
-    return session
-
-
-def _find_identified_element(root: ET.Element, tag_name: str, identifier: str) -> ET.Element:
-    for element in _descendants(root, tag_name):
-        for child in element:
-            if _local_name(child.tag) == "Identifier" and (child.text or "").strip() == identifier:
-                return element
-    raise RuntimeError(f"BOM WMTS capabilities does not contain {tag_name} {identifier}")
-
-
-def _layer_metadata(root: ET.Element, layer_id: str) -> tuple[str, list[str], str | None]:
-    layer = _find_identified_element(root, "Layer", layer_id)
-
-    matrix_set = None
-    for link in _descendants(layer, "TileMatrixSetLink"):
-        matrix_set = _child_text(link, "TileMatrixSet")
-        if matrix_set:
-            break
-    if not matrix_set:
-        raise RuntimeError(f"BOM WMTS layer {layer_id} has no TileMatrixSet")
-
-    timestamps: list[str] = []
-    default_timestamp = None
-    for dimension in _descendants(layer, "Dimension"):
-        identifier = (_child_text(dimension, "Identifier") or "").lower()
-        if identifier != "time":
-            continue
-        default_timestamp = _child_text(dimension, "Default")
-        for value in _descendants(dimension, "Value"):
-            if value.text and value.text.strip():
-                timestamps.append(value.text.strip())
-        break
-
-    if not timestamps:
-        raise RuntimeError(f"BOM WMTS layer {layer_id} has no published time values")
-
-    # Capabilities are normally ascending. Sorting defensively keeps the latest
-    # frame deterministic if upstream ordering ever changes.
-    timestamps = sorted(set(timestamps))
-    latest = default_timestamp if default_timestamp in timestamps else timestamps[-1]
-    return matrix_set, timestamps, latest
-
-
-def _tile_matrices(root: ET.Element, matrix_set_id: str) -> list[TileMatrix]:
-    matrix_set = _find_identified_element(root, "TileMatrixSet", matrix_set_id)
-    matrices: list[TileMatrix] = []
-
-    for element in _descendants(matrix_set, "TileMatrix"):
-        identifier = _child_text(element, "Identifier")
-        scale = _child_text(element, "ScaleDenominator")
-        top_left = _child_text(element, "TopLeftCorner")
-        tile_width = _child_text(element, "TileWidth")
-        tile_height = _child_text(element, "TileHeight")
-        matrix_width = _child_text(element, "MatrixWidth")
-        matrix_height = _child_text(element, "MatrixHeight")
-
-        if not all((identifier, scale, top_left, tile_width, tile_height, matrix_width, matrix_height)):
-            continue
-
-        coords = top_left.split()
-        if len(coords) != 2:
-            continue
-
-        matrices.append(
-            TileMatrix(
-                identifier=identifier,
-                scale_denominator=float(scale),
-                top_left_x=float(coords[0]),
-                top_left_y=float(coords[1]),
-                tile_width=int(tile_width),
-                tile_height=int(tile_height),
-                matrix_width=int(matrix_width),
-                matrix_height=int(matrix_height),
-            )
-        )
-
-    if not matrices:
-        raise RuntimeError(f"BOM WMTS matrix set {matrix_set_id} has no usable matrices")
-    return matrices
-
-
-def _project_bounds(bounds: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-    min_lon, min_lat, max_lon, max_lat = bounds
-    transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
-    min_x, min_y = transformer.transform(min_lon, min_lat)
-    max_x, max_y = transformer.transform(max_lon, max_lat)
-    return min(min_x, max_x), min(min_y, max_y), max(min_x, max_x), max(min_y, max_y)
-
-
-def _tile_range(
-    matrix: TileMatrix,
-    projected_bounds: tuple[float, float, float, float],
-) -> tuple[int, int, int, int] | None:
-    min_x, min_y, max_x, max_y = projected_bounds
-    span_x = matrix.tile_span_x
-    span_y = matrix.tile_span_y
-
-    col0 = math.floor((min_x - matrix.top_left_x) / span_x)
-    col1 = math.floor((max_x - matrix.top_left_x) / span_x)
-    row0 = math.floor((matrix.top_left_y - max_y) / span_y)
-    row1 = math.floor((matrix.top_left_y - min_y) / span_y)
-
-    col0 = max(0, col0)
-    row0 = max(0, row0)
-    col1 = min(matrix.matrix_width - 1, col1)
-    row1 = min(matrix.matrix_height - 1, row1)
-
-    if col0 > col1 or row0 > row1:
-        return None
-    return col0, col1, row0, row1
-
-
-def _matrix_sort_key(matrix: TileMatrix) -> float:
-    try:
-        return float(matrix.identifier)
-    except ValueError:
-        return -matrix.scale_denominator
-
-
-def _choose_matrix(
-    matrices: list[TileMatrix],
-    projected_bounds: tuple[float, float, float, float],
-) -> tuple[TileMatrix, tuple[int, int, int, int]]:
-    candidates = sorted(matrices, key=_matrix_sort_key, reverse=True)
-    fallback = None
-
-    for matrix in candidates:
-        tile_range = _tile_range(matrix, projected_bounds)
-        if tile_range is None:
-            continue
-        col0, col1, row0, row1 = tile_range
-        count = (col1 - col0 + 1) * (row1 - row0 + 1)
-        if fallback is None:
-            fallback = (matrix, tile_range)
-        if count <= config.BOM_RADAR_MAX_TILES:
-            return matrix, tile_range
-
-    if fallback is not None:
-        return fallback
-    raise RuntimeError("Requested warning extent does not intersect BOM radar WMTS coverage")
-
-
-def _tile_url(
-    layer_id: str,
-    matrix_set: str,
-    matrix: str,
-    row: int,
-    col: int,
-    timestamp: str,
+def _rainviewer_tile_url(
+    host: str,
+    path: str,
+    zoom: int,
+    x: int,
+    y: int,
 ) -> str:
-    params = {
-        "SERVICE": "WMTS",
-        "REQUEST": "GetTile",
-        "VERSION": "1.0.0",
-        "LAYER": layer_id,
-        "STYLE": "default",
-        "FORMAT": "image/png",
-        "TILEMATRIXSET": matrix_set,
-        "TILEMATRIX": matrix,
-        "TILEROW": str(row),
-        "TILECOL": str(col),
-        "time": timestamp,
-    }
-    request = requests.Request("GET", config.BOM_RADAR_WMTS_URL, params=params).prepare()
-    return request.url
+    options = f"{config.RAINVIEWER_SMOOTH}_{config.RAINVIEWER_SNOW}"
+    return (
+        f"{host}{path}/{config.RAINVIEWER_TILE_SIZE}/{zoom}/{x}/{y}/"
+        f"{config.RAINVIEWER_COLOR_SCHEME}/{options}.png"
+    )
 
 
-def _fetch_tile(url: str, tile_size: tuple[int, int]) -> Image.Image:
+def _fetch_rainviewer_tile(url: str) -> Image.Image:
     response = _session().get(url, timeout=config.HTTP_TIMEOUT)
-
-    # BOM's public WMTS may omit completely blank tiles. Treat a 404 as a
-    # transparent tile rather than failing the whole mosaic.
     if response.status_code == 404:
-        return Image.new("RGBA", tile_size, (0, 0, 0, 0))
-
+        return Image.new(
+            "RGBA",
+            (config.RAINVIEWER_TILE_SIZE, config.RAINVIEWER_TILE_SIZE),
+            (0, 0, 0, 0),
+        )
     response.raise_for_status()
+
     content_type = response.headers.get("Content-Type", "").lower()
     if "image" not in content_type:
-        raise RuntimeError(f"BOM radar tile returned {content_type or 'unknown content type'}")
-    return Image.open(BytesIO(response.content)).convert("RGBA")
+        raise RuntimeError(
+            f"RainViewer tile returned {content_type or 'unknown content type'}"
+        )
+    image = Image.open(BytesIO(response.content)).convert("RGBA")
+    if image.size != (config.RAINVIEWER_TILE_SIZE, config.RAINVIEWER_TILE_SIZE):
+        image = image.resize(
+            (config.RAINVIEWER_TILE_SIZE, config.RAINVIEWER_TILE_SIZE),
+            Image.Resampling.BILINEAR,
+        )
+    return image
 
 
-def _mosaic_tiles(
-    layer_id: str,
-    matrix_set_id: str,
-    matrix: TileMatrix,
-    tile_range: tuple[int, int, int, int],
-    timestamp: str,
-) -> tuple[Image.Image, int]:
-    col0, col1, row0, row1 = tile_range
-    cols = col1 - col0 + 1
-    rows = row1 - row0 + 1
-    mosaic = Image.new("RGBA", (cols * matrix.tile_width, rows * matrix.tile_height), (0, 0, 0, 0))
+def _fetch_rainviewer(bounds: tuple[float, float, float, float]) -> RadarFrame:
+    response = _session().get(
+        config.RAINVIEWER_MANIFEST_URL,
+        timeout=config.HTTP_TIMEOUT,
+    )
+    response.raise_for_status()
+    manifest = response.json()
 
-    tasks: dict = {}
-    with ThreadPoolExecutor(max_workers=max(1, config.BOM_RADAR_TILE_WORKERS)) as pool:
-        for row in range(row0, row1 + 1):
-            for col in range(col0, col1 + 1):
-                url = _tile_url(layer_id, matrix_set_id, matrix.identifier, row, col, timestamp)
-                tasks[pool.submit(_fetch_tile, url, (matrix.tile_width, matrix.tile_height))] = (row, col)
+    frames = ((manifest.get("radar") or {}).get("past") or [])
+    if not frames:
+        raise RuntimeError("RainViewer manifest contained no past radar frames")
+
+    frame = frames[-1]
+    host = str(manifest.get("host") or "").rstrip("/")
+    path = str(frame.get("path") or "")
+    timestamp = frame.get("time")
+    if not host or not path or timestamp is None:
+        raise RuntimeError("RainViewer latest frame was missing host/path/time metadata")
+
+    zoom, window = _choose_rainviewer_zoom(bounds)
+    x0, x1, y0, y1, x0f, x1f, y0f, y1f = window
+
+    tile_size = config.RAINVIEWER_TILE_SIZE
+    mosaic = Image.new(
+        "RGBA",
+        ((x1 - x0 + 1) * tile_size, (y1 - y0 + 1) * tile_size),
+        (0, 0, 0, 0),
+    )
+
+    tasks = {}
+    with ThreadPoolExecutor(max_workers=max(1, config.RAINVIEWER_TILE_WORKERS)) as pool:
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                url = _rainviewer_tile_url(host, path, zoom, x, y)
+                tasks[pool.submit(_fetch_rainviewer_tile, url)] = (x, y)
 
         for future in as_completed(tasks):
-            row, col = tasks[future]
+            x, y = tasks[future]
             tile = future.result()
-            if tile.size != (matrix.tile_width, matrix.tile_height):
-                tile = tile.resize((matrix.tile_width, matrix.tile_height), Image.Resampling.BILINEAR)
-            x = (col - col0) * matrix.tile_width
-            y = (row - row0) * matrix.tile_height
-            mosaic.alpha_composite(tile, (x, y))
+            mosaic.alpha_composite(
+                tile,
+                ((x - x0) * tile_size, (y - y0) * tile_size),
+            )
 
-    return mosaic, len(tasks)
-
-
-def _crop_to_bounds(
-    mosaic: Image.Image,
-    matrix: TileMatrix,
-    tile_range: tuple[int, int, int, int],
-    projected_bounds: tuple[float, float, float, float],
-) -> Image.Image:
-    col0, _, row0, _ = tile_range
-    min_x, min_y, max_x, max_y = projected_bounds
-
-    mosaic_left = matrix.top_left_x + col0 * matrix.tile_span_x
-    mosaic_top = matrix.top_left_y - row0 * matrix.tile_span_y
-
-    px_per_m_x = matrix.tile_width / matrix.tile_span_x
-    px_per_m_y = matrix.tile_height / matrix.tile_span_y
-
-    left = int(round((min_x - mosaic_left) * px_per_m_x))
-    right = int(round((max_x - mosaic_left) * px_per_m_x))
-    top = int(round((mosaic_top - max_y) * px_per_m_y))
-    bottom = int(round((mosaic_top - min_y) * px_per_m_y))
+    left = int(round((x0f - x0) * tile_size))
+    right = int(round((x1f - x0) * tile_size))
+    top = int(round((y0f - y0) * tile_size))
+    bottom = int(round((y1f - y0) * tile_size))
 
     left = max(0, min(mosaic.width - 1, left))
     right = max(left + 1, min(mosaic.width, right))
     top = max(0, min(mosaic.height - 1, top))
     bottom = max(top + 1, min(mosaic.height, bottom))
+    image = mosaic.crop((left, top, right, bottom))
 
-    return mosaic.crop((left, top, right, bottom))
-
-
-def _fallback_timestamps(count: int = 12) -> list[str]:
-    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-    minute = (now.minute // 5) * 5
-    snapped = now.replace(minute=minute) - timedelta(minutes=config.BOM_RADAR_WMTS_LAG_MINUTES)
-    return [
-        (snapped - timedelta(minutes=5 * index)).isoformat().replace("+00:00", "Z")
-        for index in range(count)
-    ]
-
-
-def _probe_timestamp(
-    layer_id: str,
-    matrix_set_id: str,
-    candidates: list[str],
-) -> str:
-    # Probe the z0/0/0 tile, matching BOM's current public-radar clients. A
-    # map-specific high-zoom tile can legitimately be absent when that area has
-    # no radar echoes, so it is not a reliable publication-availability test.
-    session = _session()
-    for timestamp in candidates:
-        url = _tile_url(layer_id, matrix_set_id, "0", 0, 0, timestamp)
-        try:
-            response = session.get(url, timeout=config.HTTP_TIMEOUT)
-            if not response.ok or "image" not in response.headers.get("Content-Type", "").lower():
-                continue
-            image = Image.open(BytesIO(response.content))
-            image.verify()
-            return timestamp
-        except Exception:
-            continue
-
-    raise RuntimeError(
-        f"No recent BOM radar frame was available for {layer_id}; "
-        f"probed {len(candidates)} recent 5-minute frames"
-    )
-
-
-def fetch_bom_radar(bounds: tuple[float, float, float, float]) -> RadarFrame:
-    if config.BOM_RADAR_IMAGESERVER_EXPORT_URL:
-        try:
-            return _fetch_public_imageserver(bounds)
-        except Exception:
-            # Fall through to the other public delivery paths. BOM's current
-            # public mapping stack has occasionally returned transient edge
-            # errors, so one provider must not make radar generation brittle.
-            pass
-
-    if config.BOM_RADAR_ARCGIS_EXPORT_URL:
-        try:
-            return _fetch_public_arcgis(bounds)
-        except Exception:
-            pass
-
-    if config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER:
-        return _fetch_registered_wms(bounds)
-
-    if not config.BOM_RADAR_WMTS_ENABLED:
-        raise RuntimeError(
-            "BOM Registered User GIS2Web WMS is not configured. "
-            "Set BOM_RADAR_WMS_URL and BOM_RADAR_WMS_LAYER."
-        )
-
-    if not config.BOM_RADAR_WMTS_URL:
-        raise RuntimeError("Experimental BOM radar WMTS is not configured")
-
-    matrix_set_id = "GoogleMapsCompatible_BoM"
-    matrices = _static_matrices()
-    advertised_latest = None
-
-    # Capabilities are useful when available, but live tile discovery does not
-    # depend on them. BOM's public mapping edge can return 404 for the document
-    # while the KVP GetTile service remains available.
-    if config.BOM_RADAR_WMTS_CAPABILITIES_URL:
-        try:
-            capabilities_response = _session().get(
-                config.BOM_RADAR_WMTS_CAPABILITIES_URL,
-                timeout=config.HTTP_TIMEOUT,
-            )
-            if capabilities_response.ok:
-                root = ET.fromstring(capabilities_response.content)
-                matrix_set_id, _timestamps, advertised_latest = _layer_metadata(
-                    root,
-                    config.BOM_RADAR_WMTS_LAYER,
-                )
-                matrices = _tile_matrices(root, matrix_set_id)
-        except Exception:
-            pass
-
-    projected_bounds = _project_bounds(bounds)
-    matrix, tile_range = _choose_matrix(matrices, projected_bounds)
-
-    candidates: list[str] = []
-    if advertised_latest:
-        candidates.append(advertised_latest)
-    for timestamp in _fallback_timestamps():
-        if timestamp not in candidates:
-            candidates.append(timestamp)
-
-    latest_timestamp = _probe_timestamp(
-        config.BOM_RADAR_WMTS_LAYER,
-        matrix_set_id,
-        candidates,
-    )
-
-    mosaic, tile_count = _mosaic_tiles(
-        config.BOM_RADAR_WMTS_LAYER,
-        matrix_set_id,
-        matrix,
-        tile_range,
-        latest_timestamp,
-    )
-    image = _crop_to_bounds(mosaic, matrix, tile_range, projected_bounds)
+    radar_time = datetime.fromtimestamp(int(timestamp), tz=timezone.utc).isoformat()
 
     return RadarFrame(
         image=image,
         bounds=bounds,
-        timestamp=latest_timestamp,
-        layer=config.BOM_RADAR_WMTS_LAYER,
-        tile_matrix=matrix.identifier,
-        tile_count=tile_count,
-        provider="public_bom_wmts",
-        legend_kind=(
-            "rain_rate"
-            if config.BOM_RADAR_WMTS_LAYER == "atm_surf_air_precip_rate_1hr_total_mm_h"
-            else "reflectivity"
-        ),
+        timestamp=radar_time,
+        layer="composite_reflectivity",
+        tile_matrix=f"WebMercator z{zoom}",
+        tile_count=len(tasks),
+        provider="rainviewer",
+        legend_kind="rainviewer_reflectivity",
     )
+
+
+def fetch_bom_radar(bounds: tuple[float, float, float, float]) -> RadarFrame:
+    if config.RAINVIEWER_ENABLED:
+        return _fetch_rainviewer(bounds)
+
+    if config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER:
+        return _fetch_registered_wms(bounds)
+
+    raise RuntimeError("No radar source is configured")
