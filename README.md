@@ -43,15 +43,26 @@ Queensland Government `AdminBoundariesFramework/FeatureServer/11` is queried dir
 
 ### BOM radar
 
-The radar renderer accepts a standard WMS source using:
+The production radar path is the Bureau's **Registered User GIS2Web WMS** rainfall-intensity mosaic. The Bureau's current radar-images guide states that this national rainfall-intensity mosaic is available to Registered Users as a WMS layer.
+
+The generator is already wired for it:
 
 ```text
-BOM_RADAR_WMS_URL=https://...
-BOM_RADAR_WMS_LAYER=...
+BOM_RADAR_WMS_URL=https://spatial.bom.gov.au/cgi-bin/mapserver/users/<account>/wxs?
+BOM_RADAR_WMS_LAYER=<layer name supplied by BOM / GetCapabilities>
 BOM_RADAR_WMS_VERSION=1.1.1
+BOM_RADAR_WMS_STYLE=
+BOM_RADAR_WMS_USERNAME=<only if the account uses HTTP basic authentication>
+BOM_RADAR_WMS_PASSWORD=<only if required>
 ```
 
-The preferred production source is a BOM registered radar/GIS service. Until that endpoint is confirmed, warning/outage maps work independently and the manifest clearly marks radar as `source_unconfigured`.
+These values are passed to the production workflow through GitHub repository secrets. They are never written into the browser application.
+
+The renderer requests a transparent PNG for the exact warning extent, overlays the warning geometry and LGA boundaries, and provides a rainfall-intensity legend.
+
+An experimental public WMTS client is retained in `src/radar.py`, but it is **disabled by default**. Testing from GitHub-hosted runners in September 2026 found that the commonly referenced public WMTS capabilities path returned HTTP 404 and recent tile probes returned no usable frames. It must not silently replace the registered WMS in production.
+
+To obtain or confirm registered access, contact Bureau Real-time Data Services at `webreg@bom.gov.au`. Bureau documentation identifies radar data and its geospatial service as registered real-time data products.
 
 ## Current project status
 
@@ -64,7 +75,8 @@ Implemented:
 - combined-warning extent calculation
 - individual maps when multiple warnings are active
 - static PNG warning/outage map with legend and timestamps
-- WMS radar overlay renderer with warning/LGA key
+- registered GIS2Web WMS radar renderer with warning/LGA overlay and rainfall-intensity key
+- optional experimental WMTS fallback, disabled by default
 - machine-readable `manifest.json`
 - source-health states that distinguish feed failure from no active warnings
 - GitHub Pages frontend with PNG previews/downloads
@@ -74,7 +86,7 @@ Implemented:
 
 Still to connect:
 
-- the preferred production BOM radar WMS endpoint/layer
+- an authorised BOM Registered User GIS2Web account endpoint/layer for production radar
 - optional registered BOM warning WFS/GeoJSON fallback
 - secure one-click GitHub workflow dispatch from the website (planned via a small Cloudflare Worker)
 
@@ -118,6 +130,9 @@ BOM_WARNING_GEOJSON_URL=https://...
 BOM_RADAR_WMS_URL=https://...
 BOM_RADAR_WMS_LAYER=...
 BOM_RADAR_WMS_VERSION=1.1.1
+BOM_RADAR_WMS_STYLE=
+BOM_RADAR_WMS_USERNAME=...
+BOM_RADAR_WMS_PASSWORD=...
 ```
 
 If `BOM_WARNING_GEOJSON_URL` is set, it takes precedence over CAP and may return a GeoJSON FeatureCollection or Feature containing Polygon/MultiPolygon geometry.
@@ -146,7 +161,7 @@ Official BOM CAP ───────────────┐
 Registered warning geometry ───┤ (optional override)
 Power outage GeoJSON ──────────┼─> Python generator ─> PNG maps + manifest ─> GitHub Pages
 QLD LGA boundaries ─────────────┤
-BOM radar WMS ──────────────────┘
+BOM registered GIS2Web WMS ─────┘
 ```
 
 The website remains static. The **Generate Maps** button is already wired to support a future relay URL, but no GitHub credential is ever placed in browser JavaScript. A Cloudflare Worker can hold the credential and dispatch `workflow_dispatch` securely.
