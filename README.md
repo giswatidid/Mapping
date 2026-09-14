@@ -80,11 +80,9 @@ Still to connect:
 
 ## GitHub Pages
 
-The workflow can deploy the `site/` directory using GitHub Pages. A brand-new repository needs Pages enabled once in repository settings:
+This repository uses GitHub Pages from the **main branch / repository root**. The web app therefore lives at the repository root (`index.html`, `app.js`, `styles.css`, `config.js`).
 
-**Settings → Pages → Build and deployment → Source → GitHub Actions**
-
-Until that has been done, map generation and tests still run successfully; the deployment steps are skipped instead of failing the whole workflow.
+The scheduled generation workflow writes current output to `generated/` and commits only that generated output back to `main`. The existing branch-based Pages deployment then republishes the site automatically. This avoids competing GitHub Pages deployment methods.
 
 ## Local development
 
@@ -129,7 +127,7 @@ If `BOM_WARNING_GEOJSON_URL` is set, it takes precedence over CAP and may return
 Generated files are written under:
 
 ```text
-site/generated/
+generated/
   manifest.json
   warning-outages-combined.png
   warning-radar-combined.png
