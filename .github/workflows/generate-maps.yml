@@ -9,6 +9,7 @@ on:
       - main
     paths:
       - "src/**"
+      - "tests/**"
       - "site/**"
       - "requirements.txt"
       - ".github/workflows/generate-maps.yml"
@@ -42,6 +43,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Run tests
+        run: pytest -q
+
       - name: Generate maps
         env:
           BOM_WARNING_GEOJSON_URL: ${{ secrets.BOM_WARNING_GEOJSON_URL }}
@@ -50,16 +54,25 @@ jobs:
           BOM_RADAR_WMS_VERSION: ${{ secrets.BOM_RADAR_WMS_VERSION }}
         run: python -m src.generate
 
-      - name: Configure GitHub Pages
+      - name: Show generation manifest
+        if: always()
+        run: |
+          if [ -f site/generated/manifest.json ]; then
+            cat site/generated/manifest.json
+          fi
+
+      - name: Check GitHub Pages configuration
+        id: pages
+        continue-on-error: true
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Upload Pages artifact
+        if: steps.pages.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
       - name: Deploy to GitHub Pages
+        if: steps.pages.outcome == 'success'
         id: deployment
         uses: actions/deploy-pages@v4
