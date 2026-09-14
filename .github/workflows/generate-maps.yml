@@ -53,6 +53,9 @@ jobs:
           BOM_RADAR_WMS_URL: ${{ secrets.BOM_RADAR_WMS_URL }}
           BOM_RADAR_WMS_LAYER: ${{ secrets.BOM_RADAR_WMS_LAYER }}
           BOM_RADAR_WMS_VERSION: ${{ secrets.BOM_RADAR_WMS_VERSION }}
+          BOM_RADAR_WMS_STYLE: ${{ secrets.BOM_RADAR_WMS_STYLE }}
+          BOM_RADAR_WMS_USERNAME: ${{ secrets.BOM_RADAR_WMS_USERNAME }}
+          BOM_RADAR_WMS_PASSWORD: ${{ secrets.BOM_RADAR_WMS_PASSWORD }}
         run: python -m src.generate
 
       - name: Show generation manifest
