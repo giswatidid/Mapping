@@ -9,48 +9,82 @@ For every current Queensland severe thunderstorm warning:
 1. **Warning + unplanned power outages + LGA boundaries**
 2. **Warning + current rain radar**
 
-When more than one warning is active, the generator also produces a combined extent containing all current warning areas.
+When more than one warning is active, the generator also produces a combined extent containing all current warning areas and separate maps for each warning.
 
 ## Data sources
 
+### BOM severe thunderstorm warnings
+
+The default warning discovery source is the official Bureau of Meteorology CAP feed distributed through the WMO Severe Weather Information Centre:
+
+`https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/rss.xml`
+
+The parser selects Queensland Severe Thunderstorm Warning products `IDQ21033` and `IDQ21035` (with an event/headline fallback), ignores expired/cancelled alerts, and converts any CAP `polygon` geometry into map polygons.
+
+If an active severe thunderstorm CAP warning is present but contains no polygon, the generator deliberately returns a source error instead of treating that as "no warning".
+
+For higher-fidelity or fallback geometry, `BOM_WARNING_GEOJSON_URL` can override CAP with a registered BOM spatial source. Relevant BOM spatial products are:
+
+- `IDQ65654` — Severe Thunderstorm Warning - Warning Area (QLD)
+- `IDQ65650` — Severe Thunderstorm Warning - Southeast Queensland - Threat Area (QLD)
+- `IDQ65652` — Severe Thunderstorm Warning - Southeast Queensland - Storm Location (QLD)
+
 ### Power outages
+
 Reuses the normalised GeoJSON already published by `gowlettluke/qldpoweroutages`:
 
 `data/current_outages.geojson`
 
-That project normalises Energex, Ergon Energy and Queensland-relevant Essential Energy outages.
+That project normalises Energex, Ergon Energy and Queensland-relevant Essential Energy outages. This project filters that feed to current **unplanned** outages.
 
 ### Local government areas
-Queensland Government AdminBoundariesFramework FeatureServer layer 11.
 
-### BOM severe thunderstorm warnings
-The renderer is ready for exact warning polygons as GeoJSON. The preferred production source is the Bureau's registered spatial warning products:
-
-- IDQ65654 — Severe Thunderstorm Warning - Warning Area (QLD)
-- IDQ65650 — Severe Thunderstorm Warning - Southeast Queensland - Threat Area (QLD)
-- IDQ65652 — Severe Thunderstorm Warning - Southeast Queensland - Storm Location (QLD)
-
-The live URL is deliberately configurable with `BOM_WARNING_GEOJSON_URL` until the registered BOM delivery endpoint is confirmed.
+Queensland Government `AdminBoundariesFramework/FeatureServer/11` is queried directly in EPSG:4326.
 
 ### BOM radar
-The radar renderer accepts a standard WMS endpoint through `BOM_RADAR_WMS_URL`. This is intended for the Bureau's registered GIS/radar service once endpoint details are confirmed.
+
+The radar renderer accepts a standard WMS source using:
+
+```text
+BOM_RADAR_WMS_URL=https://...
+BOM_RADAR_WMS_LAYER=...
+BOM_RADAR_WMS_VERSION=1.1.1
+```
+
+The preferred production source is a BOM registered radar/GIS service. Until that endpoint is confirmed, warning/outage maps work independently and the manifest clearly marks radar as `source_unconfigured`.
 
 ## Current project status
 
-The repository contains the first implementation scaffold:
+Implemented:
 
-- outage ingestion
-- LGA boundary ingestion
-- exact warning-polygon ingestion from a configurable GeoJSON URL
+- official BOM CAP severe-thunderstorm warning discovery and polygon parsing
+- optional registered spatial-warning override
+- current unplanned power outage ingestion
+- Queensland LGA boundary ingestion and labels
 - combined-warning extent calculation
-- static PNG map renderer with legends and source timestamps
-- WMS radar overlay support
-- machine-readable generation manifest
-- GitHub Pages frontend
-- manually runnable and scheduled GitHub Actions workflow
-- demo-mode geometry for renderer testing only
+- individual maps when multiple warnings are active
+- static PNG warning/outage map with legend and timestamps
+- WMS radar overlay renderer with warning/LGA key
+- machine-readable `manifest.json`
+- source-health states that distinguish feed failure from no active warnings
+- GitHub Pages frontend with PNG previews/downloads
+- manual and scheduled GitHub Actions generation
+- CAP geometry tests
+- synthetic demo mode for renderer development
 
-The application **does not pretend there are no warnings when the BOM spatial source is not configured**. It reports `source_unconfigured` distinctly from `no_active_warnings`.
+Still to connect:
+
+- the preferred production BOM radar WMS endpoint/layer
+- optional registered BOM warning WFS/GeoJSON fallback
+- secure one-click GitHub workflow dispatch from the website (planned via a small Cloudflare Worker)
+
+## GitHub Pages
+
+The workflow can deploy the `site/` directory using GitHub Pages. A brand-new repository needs Pages enabled once in repository settings:
+
+**Settings → Pages → Build and deployment → Source → GitHub Actions**
+
+Until that has been done, map generation and tests still run successfully; the deployment steps are skipped instead of failing the whole workflow.
 
 ## Local development
 
@@ -58,6 +92,7 @@ The application **does not pretend there are no warnings when the BOM spatial so
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pytest -q
 python -m src.generate --demo
 ```
 
@@ -67,22 +102,27 @@ On Windows PowerShell:
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+pytest -q
 python -m src.generate --demo
 ```
 
-Demo mode creates a synthetic Southeast Queensland warning polygon so the map renderer can be developed without misrepresenting it as live BOM data.
+Demo mode creates a synthetic Southeast Queensland polygon and marks it clearly as demo data. It is never presented as a live BOM warning.
 
 ## Live configuration
 
+No secret is required for the default WMO-distributed BOM CAP feed.
+
+Optional configuration:
+
 ```text
+BOM_CAP_RSS_URL=https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/rss.xml
 BOM_WARNING_GEOJSON_URL=https://...
 BOM_RADAR_WMS_URL=https://...
 BOM_RADAR_WMS_LAYER=...
+BOM_RADAR_WMS_VERSION=1.1.1
 ```
 
-The warning endpoint may return either a GeoJSON FeatureCollection or a single Feature. Features should contain polygon/multipolygon geometry. Useful properties include `product_id`, `warning_id`, `headline`, `issued`, `expires`, `warning_type` and `hazard`, but the parser tolerates other property names.
-
-For a WMS radar source, the generator requests a transparent PNG in EPSG:4326 for the exact map extent.
+If `BOM_WARNING_GEOJSON_URL` is set, it takes precedence over CAP and may return a GeoJSON FeatureCollection or Feature containing Polygon/MultiPolygon geometry.
 
 ## Output
 
@@ -97,19 +137,35 @@ site/generated/
   warning-radar-<warning-id>.png
 ```
 
-The manifest contains generation time, warning metadata, source health, map filenames and timestamps.
+With one warning, the combined view is the operational view. With multiple warnings, the generator creates the combined view plus maps for each warning.
+
+The manifest contains generation time, source status, warning metadata, map bounds, filenames and generation errors/warnings.
 
 ## Architecture
 
 ```text
-BOM warning geometry ─┐
-Power outage GeoJSON ─┼─> Python generator ─> PNG maps + manifest ─> GitHub Pages
-QLD LGA boundaries ───┤
-BOM radar WMS ────────┘
+Official BOM CAP ───────────────┐
+Registered warning geometry ───┤ (optional override)
+Power outage GeoJSON ──────────┼─> Python generator ─> PNG maps + manifest ─> GitHub Pages
+QLD LGA boundaries ─────────────┤
+BOM radar WMS ──────────────────┘
 ```
 
-The frontend remains static. A future one-click generation button should call a tiny authenticated relay such as a Cloudflare Worker, which can safely dispatch the GitHub Actions workflow without exposing a GitHub token in browser JavaScript.
+The website remains static. The **Generate Maps** button is already wired to support a future relay URL, but no GitHub credential is ever placed in browser JavaScript. A Cloudflare Worker can hold the credential and dispatch `workflow_dispatch` securely.
 
-## Important source/licensing note
+## Operational safeguards
 
-BOM's anonymous FTP products are useful for investigation and internal development, but BOM directs users intending to publish Bureau data toward Registered User Services. The production design therefore keeps BOM URLs configurable and is intended to use registered spatial/radar services rather than hard-wiring an unofficial or reverse-engineered endpoint.
+The project intentionally distinguishes:
+
+- `no_active_warnings` — source was successfully checked and no warning polygon is active
+- `source_error` — the warning source failed or an active warning lacked required geometry
+- `source_unconfigured` — no warning source is configured
+- `partial` — maps were made but a secondary source such as outages, LGAs or radar had a problem
+
+Old PNGs are removed before every generation so a stale warning map cannot silently remain current.
+
+## Attribution and source use
+
+BOM CAP alerts accessed through WMO SWIC remain official BOM warnings. WMO states SWIC warning information may be reused by media or other websites when attributed to the respective National Meteorological and Hydrological Service.
+
+For Bureau spatial/radar products beyond the public CAP distribution, the production design prefers Registered User Services rather than relying on undocumented or reverse-engineered endpoints.
