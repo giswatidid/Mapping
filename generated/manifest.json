@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-09-14T16:48:06+10:00",
+  "generated_at": "2026-09-14T16:49:18+10:00",
   "mode": "live",
   "status": "source_error",
   "sources": {
     "warnings": {
       "status": "error",
       "message": "A current Queensland severe thunderstorm CAP warning was found, but it did not contain polygon geometry. Configure BOM_WARNING_GEOJSON_URL with the registered BOM spatial warning feed.",
-      "timestamp": "2026-09-14T06:48:13Z",
+      "timestamp": "2026-09-14T06:49:27Z",
       "url": "https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/rss.xml",
       "count": 0
     },
