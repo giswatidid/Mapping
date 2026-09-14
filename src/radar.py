@@ -108,6 +108,58 @@ _STATIC_MATRIX_GEOMETRY = [
 ]
 
 
+def _fetch_public_arcgis(bounds: tuple[float, float, float, float]) -> RadarFrame:
+    if not config.BOM_RADAR_ARCGIS_EXPORT_URL:
+        raise RuntimeError("Public Queensland BOM radar ArcGIS service is not configured")
+
+    minx, miny, maxx, maxy = bounds
+    width = max(600, config.BOM_RADAR_ARCGIS_WIDTH)
+    ratio = max(0.30, min(3.0, (maxy - miny) / max(maxx - minx, 0.001)))
+    height = max(500, min(2400, int(round(width * ratio))))
+
+    params = {
+        "bbox": f"{minx},{miny},{maxx},{maxy}",
+        "bboxSR": "4326",
+        "imageSR": "4326",
+        "size": f"{width},{height}",
+        "dpi": "96",
+        "format": "png32",
+        "transparent": "true",
+        "layers": f"show:{config.BOM_RADAR_ARCGIS_LAYER}",
+        "f": "image",
+    }
+
+    response = requests.get(
+        config.BOM_RADAR_ARCGIS_EXPORT_URL,
+        params=params,
+        timeout=config.HTTP_TIMEOUT,
+        headers={
+            "User-Agent": config.USER_AGENT,
+            "Accept": "image/png,image/*,*/*",
+        },
+    )
+    response.raise_for_status()
+
+    content_type = response.headers.get("Content-Type", "").lower()
+    if "image" not in content_type:
+        snippet = response.text[:300].replace("\n", " ") if response.text else ""
+        raise RuntimeError(
+            f"Queensland BOM radar ArcGIS service returned {content_type or 'unknown content type'}"
+            + (f": {snippet}" if snippet else "")
+        )
+
+    return RadarFrame(
+        image=Image.open(BytesIO(response.content)).convert("RGBA"),
+        bounds=bounds,
+        timestamp=None,
+        layer=str(config.BOM_RADAR_ARCGIS_LAYER),
+        tile_matrix="ArcGIS export",
+        tile_count=1,
+        provider="qld_psba_bom_arcgis",
+        legend_kind="rain_rate",
+    )
+
+
 def _wms_auth() -> tuple[str, str] | None:
     if config.BOM_RADAR_WMS_USERNAME:
         return (config.BOM_RADAR_WMS_USERNAME, config.BOM_RADAR_WMS_PASSWORD)
@@ -504,6 +556,9 @@ def _probe_timestamp(
 
 
 def fetch_bom_radar(bounds: tuple[float, float, float, float]) -> RadarFrame:
+    if config.BOM_RADAR_ARCGIS_EXPORT_URL:
+        return _fetch_public_arcgis(bounds)
+
     if config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER:
         return _fetch_registered_wms(bounds)
 
