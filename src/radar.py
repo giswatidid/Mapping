@@ -571,6 +571,10 @@ def fetch_bom_radar(bounds: tuple[float, float, float, float]) -> RadarFrame:
         layer=config.BOM_RADAR_WMTS_LAYER,
         tile_matrix=matrix.identifier,
         tile_count=tile_count,
-        provider="experimental_wmts",
-        legend_kind="reflectivity",
+        provider="public_bom_wmts",
+        legend_kind=(
+            "rain_rate"
+            if config.BOM_RADAR_WMTS_LAYER == "atm_surf_air_precip_rate_1hr_total_mm_h"
+            else "reflectivity"
+        ),
     )
