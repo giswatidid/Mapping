@@ -27,6 +27,19 @@ BOM_CAP_RSS_URL = os.getenv(
     "https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/rss.xml",
 ).strip()
 
+# BOM's public ArcGIS ImageServer for the current national rain-rate mosaic.
+# This is the same public mapping platform used by the current BOM website.
+BOM_RADAR_IMAGESERVER_EXPORT_URL = os.getenv(
+    "BOM_RADAR_IMAGESERVER_EXPORT_URL",
+    "https://api.bom.gov.au/apikey/v1/mapping/observations/"
+    "atm_surf_air_precip_rate_1hr_total_mm_h/ImageServer/exportImage",
+).strip()
+BOM_RADAR_IMAGESERVER_RENDERER = os.getenv(
+    "BOM_RADAR_IMAGESERVER_RENDERER",
+    "precip_rate_mm_h_cubic",
+).strip()
+BOM_RADAR_IMAGESERVER_WIDTH = int(os.getenv("BOM_RADAR_IMAGESERVER_WIDTH", "1600"))
+
 # Public Queensland Government ArcGIS proxy for BOM operational layers.
 # This service exposes BOM's live radar rain-rate layer through a normal
 # ArcGIS MapServer export operation, which is ideal for static map generation.
