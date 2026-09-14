@@ -143,43 +143,23 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
             "radar": {
                 "status": "not_checked",
                 "provider": (
-                    "bom_public_imageserver"
-                    if config.BOM_RADAR_IMAGESERVER_EXPORT_URL
+                    "rainviewer"
+                    if config.RAINVIEWER_ENABLED
                     else (
-                        "qld_psba_bom_arcgis"
-                        if config.BOM_RADAR_ARCGIS_EXPORT_URL
-                        else (
-                            "gis2web_wms"
-                            if config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER
-                            else ("public_bom_wmts" if config.BOM_RADAR_WMTS_ENABLED else None)
-                        )
+                        "gis2web_wms"
+                        if config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER
+                        else None
                     )
                 ),
                 "url": (
-                    config.BOM_RADAR_IMAGESERVER_EXPORT_URL
-                    if config.BOM_RADAR_IMAGESERVER_EXPORT_URL
-                    else (
-                        config.BOM_RADAR_ARCGIS_EXPORT_URL
-                        if config.BOM_RADAR_ARCGIS_EXPORT_URL
-                        else (
-                            config.BOM_RADAR_WMS_URL
-                            if config.BOM_RADAR_WMS_URL
-                            else (config.BOM_RADAR_WMTS_URL if config.BOM_RADAR_WMTS_ENABLED else None)
-                        )
-                    )
+                    config.RAINVIEWER_MANIFEST_URL
+                    if config.RAINVIEWER_ENABLED
+                    else (config.BOM_RADAR_WMS_URL or None)
                 ),
                 "layer": (
-                    "atm_surf_air_precip_rate_1hr_total_mm_h"
-                    if config.BOM_RADAR_IMAGESERVER_EXPORT_URL
-                    else (
-                        str(config.BOM_RADAR_ARCGIS_LAYER)
-                        if config.BOM_RADAR_ARCGIS_EXPORT_URL
-                        else (
-                            config.BOM_RADAR_WMS_LAYER
-                            if config.BOM_RADAR_WMS_LAYER
-                            else (config.BOM_RADAR_WMTS_LAYER if config.BOM_RADAR_WMTS_ENABLED else None)
-                        )
-                    )
+                    "composite_reflectivity"
+                    if config.RAINVIEWER_ENABLED
+                    else (config.BOM_RADAR_WMS_LAYER or None)
                 ),
             },
         },
@@ -247,39 +227,23 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                 )
             )
 
-    imageserver_configured = bool(config.BOM_RADAR_IMAGESERVER_EXPORT_URL)
-    arcgis_configured = bool(config.BOM_RADAR_ARCGIS_EXPORT_URL)
+    rainviewer_configured = bool(config.RAINVIEWER_ENABLED and config.RAINVIEWER_MANIFEST_URL)
     wms_configured = bool(config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER)
-    wmts_configured = bool(
-        config.BOM_RADAR_WMTS_ENABLED
-        and config.BOM_RADAR_WMTS_URL
-        and config.BOM_RADAR_WMTS_LAYER
-    )
-    radar_configured = imageserver_configured or arcgis_configured or wms_configured or wmts_configured
+    radar_configured = rainviewer_configured or wms_configured
 
-    if imageserver_configured:
+    if rainviewer_configured:
         manifest["sources"]["radar"]["status"] = "configured"
-        manifest["sources"]["radar"]["provider"] = "bom_public_imageserver"
+        manifest["sources"]["radar"]["provider"] = "rainviewer"
         manifest["sources"]["radar"]["message"] = (
-            "BOM public ArcGIS ImageServer rain-rate mosaic."
-        )
-    elif arcgis_configured:
-        manifest["sources"]["radar"]["status"] = "configured"
-        manifest["sources"]["radar"]["provider"] = "qld_psba_bom_arcgis"
-        manifest["sources"]["radar"]["message"] = (
-            "Public Queensland Government ArcGIS proxy for BOM Radar Rain Rate."
+            "RainViewer public composite radar API (Universal Blue reflectivity)."
         )
     elif wms_configured:
         manifest["sources"]["radar"]["status"] = "configured"
         manifest["sources"]["radar"]["provider"] = "gis2web_wms"
         manifest["sources"]["radar"]["message"] = "BOM Registered User GIS2Web WMS."
-    elif wmts_configured:
-        manifest["sources"]["radar"]["status"] = "configured"
-        manifest["sources"]["radar"]["provider"] = "public_bom_wmts"
-        manifest["sources"]["radar"]["message"] = "Official public BOM WMTS radar service."
     else:
         manifest["sources"]["radar"]["status"] = "source_unconfigured"
-        manifest["sources"]["radar"]["message"] = "No BOM radar source is configured."
+        manifest["sources"]["radar"]["message"] = "No radar source is configured."
 
     radar_error: str | None = None
 
