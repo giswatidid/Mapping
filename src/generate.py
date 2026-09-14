@@ -143,30 +143,42 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
             "radar": {
                 "status": "not_checked",
                 "provider": (
-                    "qld_psba_bom_arcgis"
-                    if config.BOM_RADAR_ARCGIS_EXPORT_URL
+                    "bom_public_imageserver"
+                    if config.BOM_RADAR_IMAGESERVER_EXPORT_URL
                     else (
-                        "gis2web_wms"
-                        if config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER
-                        else ("public_bom_wmts" if config.BOM_RADAR_WMTS_ENABLED else None)
+                        "qld_psba_bom_arcgis"
+                        if config.BOM_RADAR_ARCGIS_EXPORT_URL
+                        else (
+                            "gis2web_wms"
+                            if config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER
+                            else ("public_bom_wmts" if config.BOM_RADAR_WMTS_ENABLED else None)
+                        )
                     )
                 ),
                 "url": (
-                    config.BOM_RADAR_ARCGIS_EXPORT_URL
-                    if config.BOM_RADAR_ARCGIS_EXPORT_URL
+                    config.BOM_RADAR_IMAGESERVER_EXPORT_URL
+                    if config.BOM_RADAR_IMAGESERVER_EXPORT_URL
                     else (
-                        config.BOM_RADAR_WMS_URL
-                        if config.BOM_RADAR_WMS_URL
-                        else (config.BOM_RADAR_WMTS_URL if config.BOM_RADAR_WMTS_ENABLED else None)
+                        config.BOM_RADAR_ARCGIS_EXPORT_URL
+                        if config.BOM_RADAR_ARCGIS_EXPORT_URL
+                        else (
+                            config.BOM_RADAR_WMS_URL
+                            if config.BOM_RADAR_WMS_URL
+                            else (config.BOM_RADAR_WMTS_URL if config.BOM_RADAR_WMTS_ENABLED else None)
+                        )
                     )
                 ),
                 "layer": (
-                    str(config.BOM_RADAR_ARCGIS_LAYER)
-                    if config.BOM_RADAR_ARCGIS_EXPORT_URL
+                    "atm_surf_air_precip_rate_1hr_total_mm_h"
+                    if config.BOM_RADAR_IMAGESERVER_EXPORT_URL
                     else (
-                        config.BOM_RADAR_WMS_LAYER
-                        if config.BOM_RADAR_WMS_LAYER
-                        else (config.BOM_RADAR_WMTS_LAYER if config.BOM_RADAR_WMTS_ENABLED else None)
+                        str(config.BOM_RADAR_ARCGIS_LAYER)
+                        if config.BOM_RADAR_ARCGIS_EXPORT_URL
+                        else (
+                            config.BOM_RADAR_WMS_LAYER
+                            if config.BOM_RADAR_WMS_LAYER
+                            else (config.BOM_RADAR_WMTS_LAYER if config.BOM_RADAR_WMTS_ENABLED else None)
+                        )
                     )
                 ),
             },
@@ -235,6 +247,7 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                 )
             )
 
+    imageserver_configured = bool(config.BOM_RADAR_IMAGESERVER_EXPORT_URL)
     arcgis_configured = bool(config.BOM_RADAR_ARCGIS_EXPORT_URL)
     wms_configured = bool(config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER)
     wmts_configured = bool(
@@ -242,9 +255,15 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
         and config.BOM_RADAR_WMTS_URL
         and config.BOM_RADAR_WMTS_LAYER
     )
-    radar_configured = arcgis_configured or wms_configured or wmts_configured
+    radar_configured = imageserver_configured or arcgis_configured or wms_configured or wmts_configured
 
-    if arcgis_configured:
+    if imageserver_configured:
+        manifest["sources"]["radar"]["status"] = "configured"
+        manifest["sources"]["radar"]["provider"] = "bom_public_imageserver"
+        manifest["sources"]["radar"]["message"] = (
+            "BOM public ArcGIS ImageServer rain-rate mosaic."
+        )
+    elif arcgis_configured:
         manifest["sources"]["radar"]["status"] = "configured"
         manifest["sources"]["radar"]["provider"] = "qld_psba_bom_arcgis"
         manifest["sources"]["radar"]["message"] = (
