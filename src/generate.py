@@ -143,19 +143,31 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
             "radar": {
                 "status": "not_checked",
                 "provider": (
-                    "gis2web_wms"
-                    if config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER
-                    else ("public_bom_wmts" if config.BOM_RADAR_WMTS_ENABLED else None)
+                    "qld_psba_bom_arcgis"
+                    if config.BOM_RADAR_ARCGIS_EXPORT_URL
+                    else (
+                        "gis2web_wms"
+                        if config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER
+                        else ("public_bom_wmts" if config.BOM_RADAR_WMTS_ENABLED else None)
+                    )
                 ),
                 "url": (
-                    config.BOM_RADAR_WMS_URL
-                    if config.BOM_RADAR_WMS_URL
-                    else (config.BOM_RADAR_WMTS_URL if config.BOM_RADAR_WMTS_ENABLED else None)
+                    config.BOM_RADAR_ARCGIS_EXPORT_URL
+                    if config.BOM_RADAR_ARCGIS_EXPORT_URL
+                    else (
+                        config.BOM_RADAR_WMS_URL
+                        if config.BOM_RADAR_WMS_URL
+                        else (config.BOM_RADAR_WMTS_URL if config.BOM_RADAR_WMTS_ENABLED else None)
+                    )
                 ),
                 "layer": (
-                    config.BOM_RADAR_WMS_LAYER
-                    if config.BOM_RADAR_WMS_LAYER
-                    else (config.BOM_RADAR_WMTS_LAYER if config.BOM_RADAR_WMTS_ENABLED else None)
+                    str(config.BOM_RADAR_ARCGIS_LAYER)
+                    if config.BOM_RADAR_ARCGIS_EXPORT_URL
+                    else (
+                        config.BOM_RADAR_WMS_LAYER
+                        if config.BOM_RADAR_WMS_LAYER
+                        else (config.BOM_RADAR_WMTS_LAYER if config.BOM_RADAR_WMTS_ENABLED else None)
+                    )
                 ),
             },
         },
@@ -223,15 +235,22 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                 )
             )
 
+    arcgis_configured = bool(config.BOM_RADAR_ARCGIS_EXPORT_URL)
     wms_configured = bool(config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER)
     wmts_configured = bool(
         config.BOM_RADAR_WMTS_ENABLED
         and config.BOM_RADAR_WMTS_URL
         and config.BOM_RADAR_WMTS_LAYER
     )
-    radar_configured = wms_configured or wmts_configured
+    radar_configured = arcgis_configured or wms_configured or wmts_configured
 
-    if wms_configured:
+    if arcgis_configured:
+        manifest["sources"]["radar"]["status"] = "configured"
+        manifest["sources"]["radar"]["provider"] = "qld_psba_bom_arcgis"
+        manifest["sources"]["radar"]["message"] = (
+            "Public Queensland Government ArcGIS proxy for BOM Radar Rain Rate."
+        )
+    elif wms_configured:
         manifest["sources"]["radar"]["status"] = "configured"
         manifest["sources"]["radar"]["provider"] = "gis2web_wms"
         manifest["sources"]["radar"]["message"] = "BOM Registered User GIS2Web WMS."
@@ -241,9 +260,7 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
         manifest["sources"]["radar"]["message"] = "Official public BOM WMTS radar service."
     else:
         manifest["sources"]["radar"]["status"] = "source_unconfigured"
-        manifest["sources"]["radar"]["message"] = (
-            "No BOM radar source is configured."
-        )
+        manifest["sources"]["radar"]["message"] = "No BOM radar source is configured."
 
     radar_error: str | None = None
 
