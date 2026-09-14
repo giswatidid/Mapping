@@ -1,0 +1,43 @@
+name: Check BOM GIS2Web WMS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-wms:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check registered BOM WMS
+        env:
+          BOM_RADAR_WMS_URL: ${{ secrets.BOM_RADAR_WMS_URL }}
+          BOM_RADAR_WMS_LAYER: ${{ secrets.BOM_RADAR_WMS_LAYER }}
+          BOM_RADAR_WMS_VERSION: ${{ secrets.BOM_RADAR_WMS_VERSION }}
+          BOM_RADAR_WMS_STYLE: ${{ secrets.BOM_RADAR_WMS_STYLE }}
+          BOM_RADAR_WMS_USERNAME: ${{ secrets.BOM_RADAR_WMS_USERNAME }}
+          BOM_RADAR_WMS_PASSWORD: ${{ secrets.BOM_RADAR_WMS_PASSWORD }}
+        run: python -m src.check_wms
+
+      - name: Upload WMS diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bom-wms-diagnostics
+          path: diagnostics
+          if-no-files-found: warn
+          retention-days: 7
