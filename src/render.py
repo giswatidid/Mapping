@@ -3,6 +3,8 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Iterable
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import textwrap
 
 import geopandas as gpd
@@ -74,13 +76,21 @@ def _draw_lgas(
     if not field:
         return
 
+    # A combined warning overview can span hundreds of kilometres. Keep the
+    # boundaries for context, but leave detailed LGA names to the individual
+    # warning maps where they remain readable.
+    if focus_gdf is not None and len(focus_gdf) > 1:
+        return
+
     label_rows = visible
+    focus_geometry = None
     if focus_gdf is not None and not focus_gdf.empty:
         try:
             focus_geometry = focus_gdf.geometry.unary_union
             label_rows = visible[visible.geometry.intersects(focus_geometry)].copy()
         except Exception:
             label_rows = visible
+            focus_geometry = None
 
     minx, miny, maxx, maxy = bounds
     label_font = 6.2 if len(label_rows) > 12 else 6.8
@@ -97,6 +107,12 @@ def _draw_lgas(
         # saved PNG beyond the actual map.
         if not (minx <= point.x <= maxx and miny <= point.y <= maxy):
             continue
+        if focus_geometry is not None:
+            try:
+                if not focus_geometry.covers(point):
+                    continue
+            except Exception:
+                pass
 
         text = str(row.get(field) or "").strip()
         if not text:
@@ -182,6 +198,19 @@ def _set_extent(ax: Any, bounds: tuple[float, float, float, float]) -> None:
     ax.grid(True, linewidth=0.35, alpha=0.22)
 
 
+def _display_time(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=ZoneInfo("Australia/Brisbane"))
+        local = parsed.astimezone(ZoneInfo("Australia/Brisbane"))
+        return local.strftime("%d %b %Y %H:%M AEST")
+    except Exception:
+        return value
+
+
 def _footer(ax: Any, lines: Iterable[str]) -> None:
     text = "  |  ".join(line for line in lines if line)
     ax.figure.text(0.5, 0.018, text, ha="center", va="bottom", fontsize=7.5, color="#4b5563")
@@ -226,9 +255,9 @@ def render_outage_map(
     ]
     ax.legend(handles=legend, loc="lower left", framealpha=0.95, fontsize=9)
 
-    footer = [f"Generated {generated_at}"]
+    footer = [f"Generated {_display_time(generated_at)}"]
     if warning_time:
-        footer.append(f"Warning issued {warning_time}")
+        footer.append(f"Warning issued {_display_time(warning_time)}")
     footer.append(f"{outage_count} unplanned outage locations shown in map extent")
     _footer(ax, footer)
 
