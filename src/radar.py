@@ -392,8 +392,14 @@ def _tile_url(
     return request.url
 
 
-def _fetch_tile(url: str) -> Image.Image:
+def _fetch_tile(url: str, tile_size: tuple[int, int]) -> Image.Image:
     response = _session().get(url, timeout=config.HTTP_TIMEOUT)
+
+    # BOM's public WMTS may omit completely blank tiles. Treat a 404 as a
+    # transparent tile rather than failing the whole mosaic.
+    if response.status_code == 404:
+        return Image.new("RGBA", tile_size, (0, 0, 0, 0))
+
     response.raise_for_status()
     content_type = response.headers.get("Content-Type", "").lower()
     if "image" not in content_type:
@@ -418,7 +424,7 @@ def _mosaic_tiles(
         for row in range(row0, row1 + 1):
             for col in range(col0, col1 + 1):
                 url = _tile_url(layer_id, matrix_set_id, matrix.identifier, row, col, timestamp)
-                tasks[pool.submit(_fetch_tile, url)] = (row, col)
+                tasks[pool.submit(_fetch_tile, url, (matrix.tile_width, matrix.tile_height))] = (row, col)
 
         for future in as_completed(tasks):
             row, col = tasks[future]
@@ -463,7 +469,7 @@ def _crop_to_bounds(
 def _fallback_timestamps(count: int = 12) -> list[str]:
     now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
     minute = (now.minute // 5) * 5
-    snapped = now.replace(minute=minute) - timedelta(minutes=10)
+    snapped = now.replace(minute=minute) - timedelta(minutes=config.BOM_RADAR_WMTS_LAG_MINUTES)
     return [
         (snapped - timedelta(minutes=5 * index)).isoformat().replace("+00:00", "Z")
         for index in range(count)
@@ -473,17 +479,14 @@ def _fallback_timestamps(count: int = 12) -> list[str]:
 def _probe_timestamp(
     layer_id: str,
     matrix_set_id: str,
-    matrix: TileMatrix,
-    tile_range: tuple[int, int, int, int],
     candidates: list[str],
 ) -> str:
-    col0, col1, row0, row1 = tile_range
-    col = (col0 + col1) // 2
-    row = (row0 + row1) // 2
-
+    # Probe the z0/0/0 tile, matching BOM's current public-radar clients. A
+    # map-specific high-zoom tile can legitimately be absent when that area has
+    # no radar echoes, so it is not a reliable publication-availability test.
     session = _session()
     for timestamp in candidates:
-        url = _tile_url(layer_id, matrix_set_id, matrix.identifier, row, col, timestamp)
+        url = _tile_url(layer_id, matrix_set_id, "0", 0, 0, timestamp)
         try:
             response = session.get(url, timeout=config.HTTP_TIMEOUT)
             if not response.ok or "image" not in response.headers.get("Content-Type", "").lower():
@@ -495,7 +498,7 @@ def _probe_timestamp(
             continue
 
     raise RuntimeError(
-        f"No recent BOM radar tile was available for {layer_id}; "
+        f"No recent BOM radar frame was available for {layer_id}; "
         f"probed {len(candidates)} recent 5-minute frames"
     )
 
@@ -549,8 +552,6 @@ def fetch_bom_radar(bounds: tuple[float, float, float, float]) -> RadarFrame:
     latest_timestamp = _probe_timestamp(
         config.BOM_RADAR_WMTS_LAYER,
         matrix_set_id,
-        matrix,
-        tile_range,
         candidates,
     )
 
