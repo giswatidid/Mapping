@@ -145,7 +145,7 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                 "provider": (
                     "gis2web_wms"
                     if config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER
-                    else ("experimental_wmts" if config.BOM_RADAR_WMTS_ENABLED else None)
+                    else ("public_bom_wmts" if config.BOM_RADAR_WMTS_ENABLED else None)
                 ),
                 "url": (
                     config.BOM_RADAR_WMS_URL
@@ -237,12 +237,12 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
         manifest["sources"]["radar"]["message"] = "BOM Registered User GIS2Web WMS."
     elif wmts_configured:
         manifest["sources"]["radar"]["status"] = "configured"
-        manifest["sources"]["radar"]["provider"] = "experimental_wmts"
-        manifest["sources"]["radar"]["message"] = "Experimental BOM WMTS fallback."
+        manifest["sources"]["radar"]["provider"] = "public_bom_wmts"
+        manifest["sources"]["radar"]["message"] = "Official public BOM WMTS radar service."
     else:
         manifest["sources"]["radar"]["status"] = "source_unconfigured"
         manifest["sources"]["radar"]["message"] = (
-            "BOM Registered User GIS2Web WMS credentials/endpoint are not configured."
+            "No BOM radar source is configured."
         )
 
     radar_error: str | None = None
