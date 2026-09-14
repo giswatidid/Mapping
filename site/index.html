@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1726">
+  <title>Queensland Severe Thunderstorm Maps</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">Queensland operational mapping</p>
+      <h1>Severe Thunderstorm Maps</h1>
+      <p class="intro">Current severe thunderstorm warning areas with unplanned power outages, LGA boundaries and rain radar.</p>
+    </div>
+    <div class="actions">
+      <button id="generateButton" class="primary" type="button">Generate Maps</button>
+      <button id="refreshButton" class="secondary" type="button">Refresh Latest</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="statusCard" class="status-card">
+      <div>
+        <span id="statusBadge" class="badge">Loading</span>
+        <h2 id="statusTitle">Checking latest generation…</h2>
+        <p id="statusMessage"></p>
+      </div>
+      <dl class="meta">
+        <div><dt>Generated</dt><dd id="generatedAt">—</dd></div>
+        <div><dt>Warnings</dt><dd id="warningCount">—</dd></div>
+        <div><dt>Mode</dt><dd id="mode">—</dd></div>
+      </dl>
+    </section>
+
+    <section>
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Outputs</p>
+          <h2>Latest maps</h2>
+        </div>
+      </div>
+      <div id="maps" class="map-grid"></div>
+      <div id="emptyState" class="empty-state" hidden></div>
+    </section>
+
+    <section class="source-panel">
+      <p class="eyebrow">Source health</p>
+      <h2>Data feeds</h2>
+      <div id="sources" class="source-grid"></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Always refer to the Bureau of Meteorology warning itself for official warning information. Map generation times and source health are shown above.</p>
+  </footer>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
