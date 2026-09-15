@@ -544,6 +544,302 @@ def _draw_outages(
     }
 
 
+
+def _iter_geometry_parts(geom: Any) -> Iterable[Any]:
+    if geom is None or geom.is_empty:
+        return
+    if geom.geom_type in {"GeometryCollection", "MultiLineString", "MultiPoint", "MultiPolygon"}:
+        for part in geom.geoms:
+            yield from _iter_geometry_parts(part)
+        return
+    yield geom
+
+
+def _road_label_point(geom: Any) -> Any:
+    if geom.geom_type in {"LineString", "LinearRing"}:
+        try:
+            return geom.interpolate(0.5, normalized=True)
+        except Exception:
+            return geom.representative_point()
+    return geom.representative_point()
+
+
+def _draw_road_labels(
+    ax: Any,
+    candidates: list[tuple[int, str, Any]],
+    bounds: tuple[float, float, float, float],
+) -> int:
+    minx, miny, maxx, maxy = bounds
+    span = max(maxx - minx, maxy - miny)
+    if span > 6.0 or not candidates:
+        return 0
+
+    # Closed roads are priority 0, conditional restrictions priority 1.
+    candidates = sorted(candidates, key=lambda item: (item[0], item[1]))
+    limit = 18 if span <= 3.5 else 12
+
+    ax.figure.canvas.draw()
+    renderer = ax.figure.canvas.get_renderer()
+    accepted: list[Any] = []
+    shown = 0
+
+    for priority, label, point in candidates:
+        if shown >= limit:
+            break
+        if not label or not (minx <= point.x <= maxx and miny <= point.y <= maxy):
+            continue
+
+        text = ax.text(
+            point.x,
+            point.y,
+            label,
+            fontsize=6.5,
+            fontweight="bold" if priority == 0 else "normal",
+            color="#7f1d1d" if priority == 0 else "#7c4a03",
+            ha="center",
+            va="center",
+            zorder=12,
+            clip_on=True,
+            bbox={
+                "boxstyle": "round,pad=0.18",
+                "facecolor": "white",
+                "edgecolor": "#991b1b" if priority == 0 else "#d97706",
+                "linewidth": 0.65,
+                "alpha": 0.90,
+            },
+        )
+        bbox = text.get_window_extent(renderer=renderer).expanded(1.08, 1.18)
+        if any(bbox.overlaps(existing) for existing in accepted):
+            text.remove()
+            continue
+        accepted.append(bbox)
+        shown += 1
+
+    return shown
+
+
+def _draw_road_closures(
+    ax: Any,
+    closures: gpd.GeoDataFrame,
+    bounds: tuple[float, float, float, float],
+    *,
+    qld_mask: gpd.GeoDataFrame | None = None,
+) -> dict[str, int]:
+    visible = clip_to_bounds(closures, bounds)
+    if visible.empty:
+        return {
+            "road_events_in_extent": 0,
+            "roads_closed": 0,
+            "roads_restricted": 0,
+            "road_labels_shown": 0,
+        }
+
+    # The QLD Traffic feed can contain nearby interstate events. Restrict this
+    # product to geometry intersecting Queensland's LGA coverage.
+    if qld_mask is not None and not qld_mask.empty:
+        try:
+            qld_geometry = qld_mask.geometry.unary_union
+            visible = visible[visible.geometry.intersects(qld_geometry)].copy()
+        except Exception:
+            pass
+
+    closed_lines: list[Any] = []
+    restricted_lines: list[Any] = []
+    closed_points: list[Any] = []
+    restricted_points: list[Any] = []
+    closed_polygons: list[Any] = []
+    restricted_polygons: list[Any] = []
+    label_candidates: list[tuple[int, str, Any]] = []
+
+    closed_count = 0
+    restricted_count = 0
+
+    for _, row in visible.iterrows():
+        geom = row.geometry
+        if geom is None or geom.is_empty:
+            continue
+
+        passability = str(row.get("passability_norm") or "").strip().lower()
+        is_closed = passability == "impassable"
+        if not is_closed and passability != "passable_with_conditions":
+            continue
+
+        if is_closed:
+            closed_count += 1
+        else:
+            restricted_count += 1
+
+        road_name = str(row.get("road_name") or "").strip()
+        locality = str(row.get("locality") or "").strip()
+        title = str(row.get("title") or "").strip()
+        label = road_name or title
+        if label and locality and locality.lower() not in label.lower():
+            label = f"{label}\n{locality}"
+
+        try:
+            label_point = _road_label_point(geom)
+            if label:
+                label_candidates.append((0 if is_closed else 1, label, label_point))
+        except Exception:
+            pass
+
+        for part in _iter_geometry_parts(geom):
+            target = (
+                closed_lines if is_closed else restricted_lines
+                if part.geom_type in {"LineString", "LinearRing"}
+                else closed_points if is_closed else restricted_points
+            )
+            if part.geom_type in {"LineString", "LinearRing"}:
+                target = closed_lines if is_closed else restricted_lines
+                target.append(part)
+            elif part.geom_type == "Point":
+                target = closed_points if is_closed else restricted_points
+                target.append(part)
+            elif part.geom_type == "Polygon":
+                target = closed_polygons if is_closed else restricted_polygons
+                target.append(part)
+
+    def draw_lines(parts: list[Any], colour: str, width: float, zorder: float) -> None:
+        if not parts:
+            return
+        series = gpd.GeoSeries(parts, crs=closures.crs)
+        series.plot(ax=ax, color="white", linewidth=width + 2.0, alpha=0.92, zorder=zorder)
+        series.plot(ax=ax, color=colour, linewidth=width, alpha=0.98, zorder=zorder + 0.1)
+
+    def draw_polygons(parts: list[Any], face: str, edge: str, zorder: float) -> None:
+        if not parts:
+            return
+        series = gpd.GeoSeries(parts, crs=closures.crs)
+        series.plot(
+            ax=ax,
+            facecolor=face,
+            edgecolor=edge,
+            linewidth=1.5,
+            alpha=0.22,
+            zorder=zorder,
+        )
+
+    draw_polygons(restricted_polygons, "#f59e0b", "#b45309", 6.0)
+    draw_polygons(closed_polygons, "#ef4444", "#991b1b", 6.3)
+    draw_lines(restricted_lines, "#f59e0b", 1.9, 7.0)
+    draw_lines(closed_lines, "#dc2626", 2.7, 7.5)
+
+    if restricted_points:
+        ax.scatter(
+            [p.x for p in restricted_points],
+            [p.y for p in restricted_points],
+            s=32,
+            marker="o",
+            c="#f59e0b",
+            edgecolors="white",
+            linewidths=0.8,
+            zorder=8,
+        )
+    if closed_points:
+        ax.scatter(
+            [p.x for p in closed_points],
+            [p.y for p in closed_points],
+            s=44,
+            marker="X",
+            c="#dc2626",
+            edgecolors="white",
+            linewidths=0.8,
+            zorder=8.2,
+        )
+
+    labels_shown = _draw_road_labels(ax, label_candidates, bounds)
+    return {
+        "road_events_in_extent": closed_count + restricted_count,
+        "roads_closed": closed_count,
+        "roads_restricted": restricted_count,
+        "road_labels_shown": labels_shown,
+    }
+
+
+def render_road_closure_map(
+    warning_gdf: gpd.GeoDataFrame | None,
+    closures: gpd.GeoDataFrame,
+    lgas: gpd.GeoDataFrame,
+    output_path: Path,
+    title: str,
+    generated_at: str,
+    warning_time: str | None = None,
+    bounds_override: tuple[float, float, float, float] | None = None,
+    coastline: gpd.GeoDataFrame | None = None,
+    state_border: gpd.GeoDataFrame | None = None,
+    mainland: gpd.GeoDataFrame | None = None,
+) -> dict[str, Any]:
+    has_warning = warning_gdf is not None and not warning_gdf.empty
+    bounds = (
+        bounds_override
+        if bounds_override is not None
+        else (
+            padded_bounds(warning_gdf)
+            if has_warning
+            else statewide_bounds(lgas, state_border=state_border, coastline=coastline)
+        )
+    )
+
+    fig, ax = plt.subplots(figsize=(12, 9), dpi=150)
+    ax.set_facecolor("#f8fafc")
+
+    _draw_lgas(
+        ax,
+        lgas,
+        bounds,
+        focus_gdf=warning_gdf if has_warning else None,
+        show_labels=has_warning,
+        land_mask=mainland if not has_warning else None,
+    )
+    _draw_qld_outline(ax, coastline, state_border, bounds)
+
+    if has_warning:
+        _draw_warning(ax, warning_gdf)
+
+    road_info = _draw_road_closures(
+        ax,
+        closures,
+        bounds,
+        qld_mask=lgas,
+    )
+    _set_extent(ax, bounds)
+    _figure_title(fig, title)
+
+    legend = [
+        Line2D([0], [0], color="#344054", lw=1.6, label="Queensland coastline / state border"),
+        Line2D([0], [0], color="#7a8790", lw=0.8, label="Local government area boundary"),
+        Line2D([0], [0], color="#dc2626", lw=2.7, label="Road closed / impassable"),
+        Line2D([0], [0], color="#f59e0b", lw=2.0, label="Road restricted / conditional access"),
+    ]
+    if has_warning:
+        legend.insert(
+            0,
+            Patch(
+                facecolor="#ffd43b",
+                edgecolor="#b45309",
+                alpha=0.25,
+                label="BOM severe thunderstorm warning area",
+            ),
+        )
+    _place_legend(fig, legend, fontsize=7.8)
+
+    footer = [f"Generated {_display_time(generated_at)}"]
+    if warning_time:
+        footer.append(f"Warning issued {_display_time(warning_time)}")
+    if not has_warning:
+        footer.append("No active Queensland severe thunderstorm warnings")
+    footer.append(f"{road_info['roads_closed']} closed")
+    footer.append(f"{road_info['roads_restricted']} restricted / conditional")
+    _footer(ax, footer)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout(rect=(0.03, 0.13, 0.97, 0.90))
+    fig.savefig(output_path, bbox_inches="tight", pad_inches=0.12)
+    plt.close(fig)
+
+    return {"bounds": list(bounds), **road_info}
+
+
 def _set_extent(ax: Any, bounds: tuple[float, float, float, float]) -> None:
     minx, miny, maxx, maxy = bounds
     ax.set_xlim(minx, maxx)
