@@ -529,7 +529,7 @@ def _draw_outages(
             edgecolors="white",
             linewidths=0.8,
             alpha=0.95,
-            zorder=8,
+            zorder=10.8,
         )
 
     labels_shown = _draw_customer_labels(ax, label_candidates, bounds)
@@ -716,8 +716,10 @@ def _draw_road_closures(
 
     draw_polygons(restricted_polygons, "#f59e0b", "#b45309", 6.0)
     draw_polygons(closed_polygons, "#ef4444", "#991b1b", 6.3)
-    draw_lines(restricted_lines, "#f59e0b", 1.9, 7.0)
-    draw_lines(closed_lines, "#dc2626", 2.7, 7.5)
+    # Road status is the primary information on this product, so closure lines
+    # sit above the warning outline. The warning fill remains underneath.
+    draw_lines(restricted_lines, "#f59e0b", 1.9, 10.0)
+    draw_lines(closed_lines, "#dc2626", 2.7, 10.4)
 
     if restricted_points:
         ax.scatter(
@@ -739,7 +741,7 @@ def _draw_road_closures(
             c="#dc2626",
             edgecolors="white",
             linewidths=0.8,
-            zorder=8.2,
+            zorder=11.0,
         )
 
     labels_shown = _draw_road_labels(ax, label_candidates, bounds)
