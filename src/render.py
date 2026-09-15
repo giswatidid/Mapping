@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import textwrap
 
 import geopandas as gpd
+import pandas as pd
 from shapely.geometry import box
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
@@ -215,7 +216,7 @@ def _draw_base_context(
         min_population, limit, font_size = 500, 32, 6.7
 
     if "population" in visible_places.columns:
-        population = gpd.pd.to_numeric(visible_places["population"], errors="coerce").fillna(0)
+        population = pd.to_numeric(visible_places["population"], errors="coerce").fillna(0)
         visible_places = visible_places.assign(_population=population)
         preferred = visible_places[visible_places["_population"] >= min_population].copy()
         if preferred.empty:
@@ -1022,6 +1023,8 @@ def render_infrastructure_map(
     coastline: gpd.GeoDataFrame | None = None,
     state_border: gpd.GeoDataFrame | None = None,
     mainland: gpd.GeoDataFrame | None = None,
+    major_roads: gpd.GeoDataFrame | None = None,
+    population_centres: gpd.GeoDataFrame | None = None,
     show_restrictions: bool = True,
 ) -> dict[str, Any]:
     """Render the operational infrastructure-impact picture.
@@ -1044,8 +1047,14 @@ def render_infrastructure_map(
         )
     )
 
-    fig, ax = plt.subplots(figsize=(12, 9), dpi=150)
-    ax.set_facecolor("#f8fafc")
+    fig, ax, _ = _map_figure(bounds)
+    _draw_base_context(
+        ax,
+        bounds,
+        mainland=mainland,
+        major_roads=major_roads,
+        population_centres=population_centres,
+    )
 
     _draw_lgas(
         ax,
