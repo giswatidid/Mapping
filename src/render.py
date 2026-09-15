@@ -820,7 +820,10 @@ def render_road_closure_map(
         )
     _place_legend(fig, legend, fontsize=7.8)
 
-    footer = [f"Generated {_display_time(generated_at)}"]
+    footer = [
+        f"Generated {_display_time(generated_at)}",
+        "Road conditions: QLD Traffic",
+    ]
     if warning_time:
         footer.append(f"Warning issued {_display_time(warning_time)}")
     if not has_warning:
