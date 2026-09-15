@@ -9,7 +9,7 @@ import geopandas as gpd
 from shapely.geometry import Polygon
 
 from . import config
-from .render import render_outage_map, render_radar_map, render_road_closure_map, statewide_bounds
+from .render import render_infrastructure_map, render_radar_map, statewide_bounds
 from .sources import (
     SourceState,
     load_lga_boundaries,
@@ -232,19 +232,6 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                 )
             )
 
-        if len(warnings) > 1:
-            for idx in range(len(warnings)):
-                meta = warning_meta[idx]
-                scopes.append(
-                    (
-                        meta["id"],
-                        meta["title"],
-                        warnings.iloc[[idx]].copy(),
-                        meta["issued"],
-                        meta["id"],
-                    )
-                )
-
     rainviewer_configured = bool(config.RAINVIEWER_ENABLED and config.RAINVIEWER_MANIFEST_URL)
     wms_configured = bool(config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER)
     radar_configured = rainviewer_configured or wms_configured
@@ -264,8 +251,8 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
         manifest["sources"]["radar"]["message"] = "No radar source is configured."
 
     if warnings.empty and warning_state.status == "no_active_warnings":
-        # Quiet-day fallback: always publish useful statewide context maps.
-        # LGA labels are suppressed at this scale, but boundaries remain visible.
+        # Quiet-day fallback: always publish the same two operational products
+        # at statewide scale. LGA labels are suppressed statewide.
         bounds = statewide_bounds(
             lgas,
             state_border=state_border,
@@ -273,66 +260,15 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
         )
         title_prefix = "No current Queensland severe thunderstorm warnings"
 
-        outage_filename = "warning-outages-statewide.png"
-        outage_info = render_outage_map(
-            None,
-            outages,
-            lgas,
-            config.OUTPUT_DIR / outage_filename,
-            title=f"{title_prefix} — Statewide Power Outages",
-            generated_at=generated_at,
-            bounds_override=bounds,
-            show_lga_labels=False,
-            coastline=coastline,
-            state_border=state_border,
-            mainland=mainland,
-        )
-        manifest["maps"].append(
-            {
-                "kind": "outages",
-                "scope": "statewide",
-                "warning_id": None,
-                "title": f"{title_prefix} — Statewide Power Outages",
-                "filename": outage_filename,
-                **outage_info,
-            }
-        )
-
-        if road_closure_state.status == "ok":
-            roads_filename = "warning-roads-statewide.png"
-            roads_info = render_road_closure_map(
-                None,
-                road_closures,
-                lgas,
-                config.OUTPUT_DIR / roads_filename,
-                title=f"{title_prefix} — Statewide Road Closures",
-                generated_at=generated_at,
-                bounds_override=bounds,
-                coastline=coastline,
-                state_border=state_border,
-                mainland=mainland,
-                show_restrictions=False,
-            )
-            manifest["maps"].append(
-                {
-                    "kind": "roads",
-                    "scope": "statewide",
-                    "warning_id": None,
-                    "title": f"{title_prefix} — Statewide Road Closures",
-                    "filename": roads_filename,
-                    **roads_info,
-                }
-            )
-
+        radar_error: str | None = None
         if radar_configured:
             radar_filename = "warning-radar-statewide.png"
             try:
                 radar_info = render_radar_map(
                     None,
-                    outages,
                     lgas,
                     config.OUTPUT_DIR / radar_filename,
-                    title=f"{title_prefix} — Statewide Rain Radar",
+                    title=f"{title_prefix} — Statewide Radar",
                     generated_at=generated_at,
                     bounds_override=bounds,
                     coastline=coastline,
@@ -344,7 +280,7 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                         "kind": "radar",
                         "scope": "statewide",
                         "warning_id": None,
-                        "title": f"{title_prefix} — Statewide Rain Radar",
+                        "title": f"{title_prefix} — Statewide Radar",
                         "filename": radar_filename,
                         **radar_info,
                     }
@@ -359,10 +295,36 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                 manifest["sources"]["radar"]["message"] = radar_error
                 manifest["errors"].append(f"Radar source: {radar_error}")
 
+        infrastructure_filename = "warning-infrastructure-statewide.png"
+        infrastructure_info = render_infrastructure_map(
+            None,
+            outages,
+            road_closures,
+            lgas,
+            config.OUTPUT_DIR / infrastructure_filename,
+            title=f"{title_prefix} — Statewide Infrastructure Impacts",
+            generated_at=generated_at,
+            bounds_override=bounds,
+            coastline=coastline,
+            state_border=state_border,
+            mainland=mainland,
+            show_restrictions=False,
+        )
+        manifest["maps"].append(
+            {
+                "kind": "infrastructure",
+                "scope": "statewide",
+                "warning_id": None,
+                "title": f"{title_prefix} — Statewide Infrastructure Impacts",
+                "filename": infrastructure_filename,
+                **infrastructure_info,
+            }
+        )
+
         manifest["status"] = "no_active_warnings"
         manifest["message"] = (
             "No active Queensland severe thunderstorm warnings. "
-            "Statewide context maps are shown instead."
+            "Statewide radar and infrastructure maps are shown instead."
         )
         write_manifest(manifest)
         return 0
@@ -370,67 +332,16 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
     radar_error: str | None = None
 
     for scope, scope_title, scope_gdf, issued, warning_id in scopes:
-        outage_filename = f"warning-outages-{scope}.png"
-        outage_path = config.OUTPUT_DIR / outage_filename
-        outage_info = render_outage_map(
-            scope_gdf,
-            outages,
-            lgas,
-            outage_path,
-            title=f"{scope_title} — Unplanned Power Outages",
-            generated_at=generated_at,
-            warning_time=issued,
-            coastline=coastline,
-            state_border=state_border,
-            mainland=mainland,
-        )
-        manifest["maps"].append(
-            {
-                "kind": "outages",
-                "scope": scope,
-                "warning_id": warning_id,
-                "title": f"{scope_title} — Unplanned Power Outages",
-                "filename": outage_filename,
-                **outage_info,
-            }
-        )
-
-        if road_closure_state.status == "ok":
-            roads_filename = f"warning-roads-{scope}.png"
-            roads_path = config.OUTPUT_DIR / roads_filename
-            roads_info = render_road_closure_map(
-                scope_gdf,
-                road_closures,
-                lgas,
-                roads_path,
-                title=f"{scope_title} — Road Closures & Restrictions",
-                generated_at=generated_at,
-                warning_time=issued,
-                coastline=coastline,
-                state_border=state_border,
-                mainland=mainland,
-            )
-            manifest["maps"].append(
-                {
-                    "kind": "roads",
-                    "scope": scope,
-                    "warning_id": warning_id,
-                    "title": f"{scope_title} — Road Closures & Restrictions",
-                    "filename": roads_filename,
-                    **roads_info,
-                }
-            )
-
+        # Product 1: warning + radar. LGA names are drawn beneath both layers.
         if radar_configured and radar_error is None:
             radar_filename = f"warning-radar-{scope}.png"
             radar_path = config.OUTPUT_DIR / radar_filename
             try:
                 radar_info = render_radar_map(
                     scope_gdf,
-                    outages,
                     lgas,
                     radar_path,
-                    title=f"{scope_title} — Rain Radar",
+                    title=f"{scope_title} — Radar",
                     generated_at=generated_at,
                     warning_time=issued,
                     coastline=coastline,
@@ -442,7 +353,7 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                         "kind": "radar",
                         "scope": scope,
                         "warning_id": warning_id,
-                        "title": f"{scope_title} — Rain Radar",
+                        "title": f"{scope_title} — Radar",
                         "filename": radar_filename,
                         **radar_info,
                     }
@@ -456,6 +367,35 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                 manifest["sources"]["radar"]["status"] = "error"
                 manifest["sources"]["radar"]["message"] = radar_error
                 manifest["errors"].append(f"Radar source: {radar_error}")
+
+        # Product 2: warning + infrastructure impacts. Power outages and road
+        # conditions are drawn above the warning; LGA labels remain background context.
+        infrastructure_filename = f"warning-infrastructure-{scope}.png"
+        infrastructure_path = config.OUTPUT_DIR / infrastructure_filename
+        infrastructure_info = render_infrastructure_map(
+            scope_gdf,
+            outages,
+            road_closures,
+            lgas,
+            infrastructure_path,
+            title=f"{scope_title} — Infrastructure Impacts",
+            generated_at=generated_at,
+            warning_time=issued,
+            coastline=coastline,
+            state_border=state_border,
+            mainland=mainland,
+            show_restrictions=True,
+        )
+        manifest["maps"].append(
+            {
+                "kind": "infrastructure",
+                "scope": scope,
+                "warning_id": warning_id,
+                "title": f"{scope_title} — Infrastructure Impacts",
+                "filename": infrastructure_filename,
+                **infrastructure_info,
+            }
+        )
 
     if manifest["maps"]:
         manifest["status"] = "ok" if not manifest["errors"] else "partial"
