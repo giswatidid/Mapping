@@ -26,15 +26,24 @@ def padded_bounds(gdf: gpd.GeoDataFrame, fraction: float = 0.09, minimum: float 
     return minx - padx, miny - pady, maxx + padx, maxy + pady
 
 
-def statewide_bounds(lgas: gpd.GeoDataFrame, fraction: float = 0.025) -> tuple[float, float, float, float]:
+def statewide_bounds(
+    lgas: gpd.GeoDataFrame,
+    state_border: gpd.GeoDataFrame | None = None,
+    coastline: gpd.GeoDataFrame | None = None,
+    fraction: float = 0.025,
+) -> tuple[float, float, float, float]:
     """Return a stable whole-of-Queensland map extent.
 
-    Prefer the live Queensland LGA dataset so offshore LGAs/islands are included.
-    Fall back to a conservative Queensland extent if that source is unavailable.
+    Prefer the true Queensland border/coastline rather than LGA polygons because
+    several coastal LGAs extend offshore and otherwise make the state look wider
+    than its actual land/coastline outline.
     """
-    if lgas is not None and not lgas.empty:
+    candidates = [state_border, coastline, lgas]
+    for candidate in candidates:
+        if candidate is None or candidate.empty:
+            continue
         try:
-            minx, miny, maxx, maxy = [float(v) for v in lgas.total_bounds]
+            minx, miny, maxx, maxy = [float(v) for v in candidate.total_bounds]
             if maxx > minx and maxy > miny:
                 dx = maxx - minx
                 dy = maxy - miny
@@ -45,7 +54,7 @@ def statewide_bounds(lgas: gpd.GeoDataFrame, fraction: float = 0.025) -> tuple[f
                     maxy + dy * fraction,
                 )
         except Exception:
-            pass
+            continue
 
     return (137.5, -29.6, 154.0, -8.8)
 
@@ -90,12 +99,34 @@ def _draw_lgas(
     bounds: tuple[float, float, float, float],
     focus_gdf: gpd.GeoDataFrame | None = None,
     show_labels: bool = True,
+    land_mask: gpd.GeoDataFrame | None = None,
+    radar_background: bool = False,
 ) -> None:
     visible = clip_to_bounds(lgas, bounds)
     if visible.empty:
         return
 
-    visible.boundary.plot(ax=ax, color="#5f6b73", linewidth=0.7, alpha=0.85, zorder=2)
+    # Statewide LGA polygons include marine administration areas. On quiet-day
+    # statewide maps, clip them to the Queensland mainland so those offshore
+    # straight-line boundaries do not masquerade as a coastline.
+    if land_mask is not None and not land_mask.empty:
+        try:
+            mask_geometry = land_mask.geometry.unary_union
+            visible = visible.copy()
+            visible["geometry"] = visible.geometry.intersection(mask_geometry)
+            visible = visible[~visible.geometry.is_empty].copy()
+        except Exception:
+            pass
+
+    line_color = "white" if radar_background else "#7a8790"
+    line_alpha = 0.72 if radar_background else 0.68
+    visible.boundary.plot(
+        ax=ax,
+        color=line_color,
+        linewidth=0.55,
+        alpha=line_alpha,
+        zorder=3 if radar_background else 2,
+    )
 
     if not show_labels:
         return
@@ -157,6 +188,74 @@ def _draw_lgas(
             zorder=3,
             clip_on=True,
         )
+
+
+def _draw_qld_outline(
+    ax: Any,
+    coastline: gpd.GeoDataFrame | None,
+    state_border: gpd.GeoDataFrame | None,
+    bounds: tuple[float, float, float, float],
+    *,
+    radar_background: bool = False,
+) -> None:
+    """Draw the true coastline/state border above LGA boundaries."""
+    layers = []
+    if coastline is not None and not coastline.empty:
+        layers.append(clip_to_bounds(coastline, bounds))
+    if state_border is not None and not state_border.empty:
+        layers.append(clip_to_bounds(state_border, bounds))
+
+    for layer in layers:
+        if layer.empty:
+            continue
+        if radar_background:
+            # White casing makes the outline survive strong radar colours.
+            layer.plot(
+                ax=ax,
+                color="white",
+                linewidth=2.4,
+                alpha=0.95,
+                zorder=5,
+            )
+            layer.plot(
+                ax=ax,
+                color="#263238",
+                linewidth=1.15,
+                alpha=0.98,
+                zorder=5.1,
+            )
+        else:
+            layer.plot(
+                ax=ax,
+                color="#344054",
+                linewidth=1.45,
+                alpha=0.98,
+                zorder=5,
+            )
+
+
+def _place_legend(
+    fig: Any,
+    handles: list[Any],
+    *,
+    fontsize: float = 8.2,
+) -> None:
+    """Place map keys below the map frame rather than over data."""
+    if not handles:
+        return
+
+    columns = min(3, max(1, len(handles)))
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.047),
+        ncol=columns,
+        framealpha=0.96,
+        fontsize=fontsize,
+        borderaxespad=0.0,
+        handlelength=2.4,
+        columnspacing=1.4,
+    )
 
 
 def _draw_warning(
@@ -454,12 +553,19 @@ def render_outage_map(
     warning_time: str | None = None,
     bounds_override: tuple[float, float, float, float] | None = None,
     show_lga_labels: bool = True,
+    coastline: gpd.GeoDataFrame | None = None,
+    state_border: gpd.GeoDataFrame | None = None,
+    mainland: gpd.GeoDataFrame | None = None,
 ) -> dict[str, Any]:
     has_warning = warning_gdf is not None and not warning_gdf.empty
     bounds = (
         bounds_override
         if bounds_override is not None
-        else (padded_bounds(warning_gdf) if has_warning else statewide_bounds(lgas))
+        else (
+            padded_bounds(warning_gdf)
+            if has_warning
+            else statewide_bounds(lgas, state_border=state_border, coastline=coastline)
+        )
     )
 
     fig, ax = plt.subplots(figsize=(12, 9), dpi=150)
@@ -471,7 +577,10 @@ def render_outage_map(
         bounds,
         focus_gdf=warning_gdf if has_warning else None,
         show_labels=show_lga_labels,
+        land_mask=mainland if not has_warning else None,
     )
+    _draw_qld_outline(ax, coastline, state_border, bounds)
+
     if has_warning:
         _draw_warning(ax, warning_gdf)
 
@@ -480,7 +589,8 @@ def render_outage_map(
 
     _figure_title(fig, title)
     legend = [
-        Line2D([0], [0], color="#5f6b73", lw=1.1, label="Local government area boundary"),
+        Line2D([0], [0], color="#344054", lw=1.6, label="Queensland coastline / state border"),
+        Line2D([0], [0], color="#7a8790", lw=0.8, label="Local government area boundary"),
         Patch(
             facecolor="#ef4444",
             edgecolor="#991b1b",
@@ -511,7 +621,7 @@ def render_outage_map(
                 label="BOM severe thunderstorm warning area",
             ),
         )
-    ax.legend(handles=legend, loc="lower left", framealpha=0.95, fontsize=8.5)
+    _place_legend(fig, legend, fontsize=8.1)
 
     footer = [f"Generated {_display_time(generated_at)}"]
     if warning_time:
@@ -524,7 +634,7 @@ def render_outage_map(
     _footer(ax, footer)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout(rect=(0.03, 0.05, 0.97, 0.90))
+    fig.tight_layout(rect=(0.03, 0.13, 0.97, 0.90))
     fig.savefig(output_path, bbox_inches="tight", pad_inches=0.12)
     plt.close(fig)
 
@@ -540,12 +650,19 @@ def render_radar_map(
     generated_at: str,
     warning_time: str | None = None,
     bounds_override: tuple[float, float, float, float] | None = None,
+    coastline: gpd.GeoDataFrame | None = None,
+    state_border: gpd.GeoDataFrame | None = None,
+    mainland: gpd.GeoDataFrame | None = None,
 ) -> dict[str, Any]:
     has_warning = warning_gdf is not None and not warning_gdf.empty
     bounds = (
         bounds_override
         if bounds_override is not None
-        else (padded_bounds(warning_gdf) if has_warning else statewide_bounds(lgas))
+        else (
+            padded_bounds(warning_gdf)
+            if has_warning
+            else statewide_bounds(lgas, state_border=state_border, coastline=coastline)
+        )
     )
     radar = fetch_bom_radar(bounds)
 
@@ -560,15 +677,22 @@ def render_radar_map(
         zorder=1,
     )
 
-    visible_lgas = clip_to_bounds(lgas, bounds)
-    if not visible_lgas.empty:
-        visible_lgas.boundary.plot(
-            ax=ax,
-            color="white",
-            linewidth=0.7,
-            alpha=0.82,
-            zorder=3,
-        )
+    _draw_lgas(
+        ax,
+        lgas,
+        bounds,
+        focus_gdf=None,
+        show_labels=False,
+        land_mask=mainland if not has_warning else None,
+        radar_background=True,
+    )
+    _draw_qld_outline(
+        ax,
+        coastline,
+        state_border,
+        bounds,
+        radar_background=True,
+    )
 
     if has_warning:
         _draw_warning(ax, warning_gdf, radar_background=True)
@@ -584,7 +708,8 @@ def render_radar_map(
     _figure_title(fig, title)
 
     context_legend = [
-        Line2D([0], [0], color="white", lw=1.4, label="Local government area boundary"),
+        Line2D([0], [0], color="#263238", lw=1.6, label="Queensland coastline / state border"),
+        Line2D([0], [0], color="#98a2b3", lw=0.9, label="Local government area boundary"),
         Patch(
             facecolor="#ef4444",
             edgecolor="#991b1b",
@@ -617,7 +742,7 @@ def render_radar_map(
                 label="BOM severe thunderstorm warning boundary",
             ),
         )
-    ax.legend(handles=context_legend, loc="lower left", framealpha=0.92, fontsize=7.8)
+    _place_legend(fig, context_legend, fontsize=7.7)
 
     if radar.legend_kind == "rain_rate":
         legend_spec = RAIN_RATE_LEGEND
@@ -660,7 +785,7 @@ def render_radar_map(
     _footer(ax, footer)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout(rect=(0.03, 0.05, 0.97, 0.90))
+    fig.tight_layout(rect=(0.03, 0.13, 0.97, 0.90))
     fig.savefig(output_path, bbox_inches="tight", pad_inches=0.12)
     plt.close(fig)
 
