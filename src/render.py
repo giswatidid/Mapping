@@ -155,7 +155,7 @@ def _map_figure(
 
     fig = plt.figure(figsize=(fig_width, fig_height), dpi=150)
     right = 0.80 if with_colorbar else 0.94
-    ax = fig.add_axes([0.065, 0.155, right - 0.065, 0.755])
+    ax = fig.add_axes([0.065, 0.170, right - 0.065, 0.740])
     cax = fig.add_axes([0.845, 0.205, 0.032, 0.625]) if with_colorbar else None
     return fig, ax, cax
 
@@ -1191,8 +1191,31 @@ def _display_time(value: str | None) -> str | None:
 
 
 def _footer(ax: Any, lines: Iterable[str]) -> None:
-    text = "  |  ".join(line for line in lines if line)
-    ax.figure.text(0.5, 0.014, text, ha="center", va="bottom", fontsize=6.8, color="#667085")
+    raw = "  |  ".join(line for line in lines if line)
+
+    # bbox_inches="tight" expands the exported PNG to include figure text.
+    # Wrap long operational footers so they grow vertically instead of making
+    # the whole image excessively wide.
+    fig_width = ax.figure.get_figwidth()
+    wrap_width = max(64, int(fig_width * 12.5))
+    wrapped = textwrap.fill(
+        raw,
+        width=wrap_width,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+
+    ax.figure.text(
+        0.5,
+        0.014,
+        wrapped,
+        ha="center",
+        va="bottom",
+        fontsize=6.8,
+        color="#667085",
+        linespacing=1.15,
+        multialignment="center",
+    )
 
 
 def _figure_title(fig: Any, title: str) -> None:
