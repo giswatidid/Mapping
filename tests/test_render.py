@@ -2,7 +2,7 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 from shapely.geometry import LineString, Point, Polygon
 
-from src.render import _affected_customers, _draw_outages, _draw_road_closures, statewide_bounds
+from src.render import _affected_customers, _draw_lgas, _draw_outages, _draw_road_closures, statewide_bounds
 
 
 def test_affected_customers_reads_normalised_field():
@@ -163,3 +163,55 @@ def test_draw_road_closures_separates_closed_and_restricted_events():
     # Full closures are labelled preferentially; restrictions remain visible
     # but are not allowed to crowd out closed-road labels.
     assert info["road_labels_shown"] == 1
+
+
+def test_lga_labels_remain_available_for_combined_warning_extent():
+    lgas = gpd.GeoDataFrame(
+        [
+            {
+                "LGA": "Alpha",
+                "geometry": Polygon([
+                    (152.0, -28.0), (152.8, -28.0), (152.8, -27.2), (152.0, -27.2)
+                ]),
+            },
+            {
+                "LGA": "Beta",
+                "geometry": Polygon([
+                    (152.8, -28.0), (153.6, -28.0), (153.6, -27.2), (152.8, -27.2)
+                ]),
+            },
+        ],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+    warnings = gpd.GeoDataFrame(
+        [
+            {
+                "geometry": Polygon([
+                    (152.1, -27.9), (152.7, -27.9), (152.7, -27.3), (152.1, -27.3)
+                ])
+            },
+            {
+                "geometry": Polygon([
+                    (152.9, -27.9), (153.5, -27.9), (153.5, -27.3), (152.9, -27.3)
+                ])
+            },
+        ],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+
+    fig, ax = plt.subplots()
+    try:
+        _draw_lgas(
+            ax,
+            lgas,
+            (151.9, -28.1, 153.7, -27.1),
+            focus_gdf=warnings,
+            show_labels=True,
+        )
+        labels = {text.get_text() for text in ax.texts}
+    finally:
+        plt.close(fig)
+
+    assert labels == {"Alpha", "Beta"}
