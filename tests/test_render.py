@@ -2,7 +2,7 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 from shapely.geometry import LineString, Point, Polygon
 
-from src.render import _affected_customers, _draw_outages, statewide_bounds
+from src.render import _affected_customers, _draw_outages, _draw_road_closures, statewide_bounds
 
 
 def test_affected_customers_reads_normalised_field():
@@ -114,3 +114,50 @@ def test_statewide_bounds_prefers_full_state_border_over_distant_coastline_featu
     )
 
     assert bounds == (138.0, -29.2, 154.0, -9.0)
+
+
+def test_draw_road_closures_separates_closed_and_restricted_events():
+    closures = gpd.GeoDataFrame(
+        [
+            {
+                "passability_norm": "impassable",
+                "road_name": "Closed Road",
+                "locality": "Example",
+                "geometry": LineString([(153.00, -27.70), (153.05, -27.68)]),
+            },
+            {
+                "passability_norm": "passable_with_conditions",
+                "road_name": "Restricted Road",
+                "locality": "Example",
+                "geometry": Point(153.08, -27.67),
+            },
+            {
+                "passability_norm": "unknown",
+                "road_name": "Informational Only",
+                "geometry": Point(153.10, -27.66),
+            },
+        ],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+    qld_mask = gpd.GeoDataFrame(
+        [{"geometry": Polygon([(152.9, -27.8), (153.2, -27.8), (153.2, -27.5), (152.9, -27.5)])}],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+
+    fig, ax = plt.subplots()
+    try:
+        info = _draw_road_closures(
+            ax,
+            closures,
+            (152.95, -27.75, 153.15, -27.60),
+            qld_mask=qld_mask,
+        )
+    finally:
+        plt.close(fig)
+
+    assert info["road_events_in_extent"] == 2
+    assert info["roads_closed"] == 1
+    assert info["roads_restricted"] == 1
+    assert info["road_labels_shown"] == 2
