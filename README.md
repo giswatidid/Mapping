@@ -143,6 +143,25 @@ BOM_RADAR_WMS_PASSWORD=...
 
 If `BOM_WARNING_GEOJSON_URL` is set, it takes precedence over CAP and may return a GeoJSON FeatureCollection or Feature containing Polygon/MultiPolygon geometry.
 
+## Cartographic overlap rules
+
+Power-outage features are rendered from their true GeoJSON geometry rather than being reduced to centroids.
+
+Layer priority is:
+
+1. radar/base imagery
+2. LGA boundaries
+3. thunderstorm-warning fill
+4. outage polygons/points
+5. thunderstorm-warning outline
+6. customer-count labels
+
+This keeps outage areas and customer counts readable without losing the warning boundary. On radar maps the warning fill is intentionally very faint and its amber boundary is dashed; outage areas use a translucent red fill with a dark-red outline.
+
+Customer labels use the normalised `affected_customers` value when it is known. Labels are placed at a polygon representative point (therefore inside the polygon), prioritised from largest to smallest outage, and suppressed when they would overlap another higher-priority label. The label cap varies with map scale: statewide/large extents show fewer labels than local warning extents. Point symbols are retained only where an outage source does not provide a polygon.
+
+The map footer records the number of outages and the total known customers affected in the map extent.
+
 ## Output
 
 Generated files are written under:
