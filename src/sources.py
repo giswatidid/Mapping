@@ -396,6 +396,80 @@ def load_power_outages() -> tuple[gpd.GeoDataFrame, SourceState]:
         )
 
 
+def filter_road_closures(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Keep map-relevant current road closures/restrictions only.
+
+    qld_only_isolation already performs the difficult temporal filtering,
+    area-alert handling, passability normalisation and ferry-status injection.
+    This project therefore consumes that normalised output and shows only
+    genuinely impassable or conditional-access events.
+    """
+    if gdf.empty:
+        return gdf
+
+    filtered = gdf.copy()
+
+    if "status_norm" in filtered.columns:
+        status = filtered["status_norm"].fillna("").astype(str).str.lower().str.strip()
+        filtered = filtered[status.eq("active")].copy()
+
+    if "passability_norm" in filtered.columns:
+        passability = (
+            filtered["passability_norm"].fillna("").astype(str).str.lower().str.strip()
+        )
+        filtered = filtered[
+            passability.isin({"impassable", "passable_with_conditions"})
+        ].copy()
+    elif "category_norm" in filtered.columns:
+        category = filtered["category_norm"].fillna("").astype(str).str.lower().str.strip()
+        filtered = filtered[
+            category.isin({"road_closed", "road_restricted", "open_with_caution"})
+        ].copy()
+
+    if not filtered.empty:
+        filtered = filtered[
+            filtered.geometry.notna() & ~filtered.geometry.is_empty
+        ].copy()
+
+    return filtered
+
+
+def load_road_closures() -> tuple[gpd.GeoDataFrame, SourceState]:
+    url = config.ROAD_CLOSURES_URL
+    try:
+        r = _session().get(url, timeout=config.HTTP_TIMEOUT)
+        r.raise_for_status()
+        gdf = filter_road_closures(_to_gdf(r.json()))
+
+        timestamp = _iso_now()
+        if not gdf.empty and "fetched_at" in gdf.columns:
+            values = [
+                str(value).strip()
+                for value in gdf["fetched_at"].tolist()
+                if value not in (None, "") and str(value).strip()
+            ]
+            if values:
+                timestamp = max(values)
+
+        return gdf, SourceState(
+            status="ok",
+            message=(
+                "Current QLD Traffic road closures/restrictions normalised by "
+                "qld_only_isolation, including live ferry closure injections."
+            ),
+            timestamp=timestamp,
+            url=url,
+            count=len(gdf),
+        )
+    except Exception as exc:
+        return _empty_gdf(), SourceState(
+            status="error",
+            message=f"{type(exc).__name__}: {exc}",
+            timestamp=_iso_now(),
+            url=url,
+        )
+
+
 def _load_arcgis_geojson_layer(
     layer_url: str,
     *,
