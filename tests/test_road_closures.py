@@ -122,3 +122,26 @@ def test_normalise_qldtraffic_excludes_future_events_and_area_alert_polygons():
     assert len(gdf) == 1
     assert gdf.iloc[0]["road_name"] == "Current Road"
     assert gdf.iloc[0]["passability_norm"] == "impassable"
+
+
+def test_normalise_qldtraffic_empty_result_is_valid_geodataframe():
+    payload = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [153.0, -27.0]},
+                "properties": {
+                    "id": 99,
+                    "status": "Published",
+                    "duration": {},
+                    "impact": {"impact_type": "N/A", "impact_subtype": None},
+                },
+            }
+        ],
+    }
+
+    gdf = normalise_qldtraffic_road_closures(payload)
+
+    assert gdf.empty
+    assert gdf.crs.to_string() == "EPSG:4326"
