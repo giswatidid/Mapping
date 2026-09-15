@@ -1,54 +1,54 @@
 {
-  "generated_at": "2026-09-15T13:23:11+10:00",
+  "generated_at": "2026-09-15T13:27:15+10:00",
   "mode": "live",
   "status": "no_active_warnings",
   "sources": {
     "warnings": {
       "status": "no_active_warnings",
       "message": "No active Queensland severe thunderstorm CAP warnings remained after validity filtering.",
-      "timestamp": "2026-09-15T03:23:18Z",
+      "timestamp": "2026-09-15T03:27:23Z",
       "url": "https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/rss.xml",
       "count": 0
     },
     "outages": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-15T03:23:18Z",
+      "timestamp": "2026-09-15T03:27:23Z",
       "url": "https://raw.githubusercontent.com/gowlettluke/qldpoweroutages/main/data/current_outages.geojson",
       "count": 3
     },
     "road_closures": {
       "status": "ok",
       "message": "Live QLD Traffic events filtered to current road closures and conditional-access restrictions. Area-alert polygons are not treated as closed roads unless explicit road-line geometry is supplied.",
-      "timestamp": "2026-09-15T13:21:49.582699+10:00",
+      "timestamp": "2026-09-15T13:23:44.982673+10:00",
       "url": "https://data.qldtraffic.qld.gov.au/events_v2.geojson",
-      "count": 346
+      "count": 345
     },
     "lgas": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-15T03:23:24Z",
+      "timestamp": "2026-09-15T03:27:30Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdminBoundariesFramework/FeatureServer/11/query?where=1%3D1&outFields=%2A&returnGeometry=true&outSR=4326&f=geojson",
       "count": 78
     },
     "coastline": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-15T03:23:29Z",
+      "timestamp": "2026-09-15T03:27:37Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/55/query?where=1%3D1&outFields=feature_type&returnGeometry=true&outSR=4326&f=geojson",
       "count": 4721
     },
     "state_border": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-15T03:23:30Z",
+      "timestamp": "2026-09-15T03:27:38Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/5/query?where=1%3D1&outFields=border_desc%2Cstate_desc&returnGeometry=true&outSR=4326&f=geojson",
       "count": 124
     },
     "mainland": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-15T03:23:33Z",
+      "timestamp": "2026-09-15T03:27:42Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Location/GeographicalFeatures/FeatureServer/90/query?where=1%3D1&outFields=feature_type%2Cname&returnGeometry=true&outSR=4326&f=geojson",
       "count": 2
     },
@@ -87,7 +87,7 @@
       "kind": "roads",
       "scope": "statewide",
       "warning_id": null,
-      "title": "No current Queensland severe thunderstorm warnings — Statewide Road Closures & Restrictions",
+      "title": "No current Queensland severe thunderstorm warnings — Statewide Road Closures",
       "filename": "warning-roads-statewide.png",
       "bounds": [
         137.5560278624979,
@@ -95,9 +95,9 @@
         155.9779896450013,
         -8.720590217245178
       ],
-      "road_events_in_extent": 346,
+      "road_events_in_extent": 345,
       "roads_closed": 43,
-      "roads_restricted": 303,
+      "roads_restricted": 302,
       "road_labels_shown": 0
     },
     {
