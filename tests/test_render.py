@@ -1,8 +1,8 @@
 import geopandas as gpd
 import matplotlib.pyplot as plt
-from shapely.geometry import Point, Polygon
+from shapely.geometry import LineString, Point, Polygon
 
-from src.render import _affected_customers, _draw_outages
+from src.render import _affected_customers, _draw_outages, statewide_bounds
 
 
 def test_affected_customers_reads_normalised_field():
@@ -59,3 +59,31 @@ def test_draw_outages_uses_polygon_geometry_and_customer_totals():
     assert info["customers_affected"] == 58
     assert info["customers_known_outages"] == 2
     assert info["customer_labels_shown"] == 2
+
+
+def test_statewide_bounds_combines_coastline_and_interstate_border():
+    # Coastline reaches Cape York; interstate border reaches farther south/west.
+    coastline = gpd.GeoDataFrame(
+        [{"geometry": LineString([(142.0, -28.0), (153.5, -9.2)])}],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+    state_border = gpd.GeoDataFrame(
+        [{"geometry": LineString([(138.0, -29.2), (141.0, -16.2)])}],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+    lgas = gpd.GeoDataFrame(
+        [{"geometry": Polygon([(137.5, -29.5), (154.0, -29.5), (154.0, -8.5), (137.5, -8.5)])}],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+
+    bounds = statewide_bounds(
+        lgas,
+        state_border=state_border,
+        coastline=coastline,
+        fraction=0.0,
+    )
+
+    assert bounds == (138.0, -29.2, 153.5, -9.2)
