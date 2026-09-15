@@ -87,3 +87,30 @@ def test_statewide_bounds_combines_coastline_and_interstate_border():
     )
 
     assert bounds == (138.0, -29.2, 153.5, -9.2)
+
+
+def test_statewide_bounds_prefers_full_state_border_over_distant_coastline_features():
+    state_border = gpd.GeoDataFrame(
+        [{"geometry": LineString([(138.0, -29.2), (154.0, -9.0)])}],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+    coastline = gpd.GeoDataFrame(
+        [{"geometry": LineString([(142.0, -28.0), (155.5, -9.2)])}],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+    lgas = gpd.GeoDataFrame(
+        [{"geometry": Polygon([(137.5, -29.5), (154.0, -29.5), (154.0, -8.5), (137.5, -8.5)])}],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+
+    bounds = statewide_bounds(
+        lgas,
+        state_border=state_border,
+        coastline=coastline,
+        fraction=0.0,
+    )
+
+    assert bounds == (138.0, -29.2, 154.0, -9.0)
