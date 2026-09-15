@@ -38,23 +38,47 @@ def statewide_bounds(
     several coastal LGAs extend offshore and otherwise make the state look wider
     than its actual land/coastline outline.
     """
-    candidates = [state_border, coastline, lgas]
-    for candidate in candidates:
+    # Coastline and interstate border are separate line datasets, so their
+    # extents must be combined. Using either one by itself can truncate Cape
+    # York or the southern/western state border.
+    outline_bounds: list[tuple[float, float, float, float]] = []
+    for candidate in (coastline, state_border):
         if candidate is None or candidate.empty:
             continue
         try:
-            minx, miny, maxx, maxy = [float(v) for v in candidate.total_bounds]
-            if maxx > minx and maxy > miny:
-                dx = maxx - minx
-                dy = maxy - miny
-                return (
-                    minx - dx * fraction,
-                    miny - dy * fraction,
-                    maxx + dx * fraction,
-                    maxy + dy * fraction,
-                )
+            values = tuple(float(v) for v in candidate.total_bounds)
+            if values[2] > values[0] and values[3] > values[1]:
+                outline_bounds.append(values)
         except Exception:
             continue
+
+    if outline_bounds:
+        minx = min(item[0] for item in outline_bounds)
+        miny = min(item[1] for item in outline_bounds)
+        maxx = max(item[2] for item in outline_bounds)
+        maxy = max(item[3] for item in outline_bounds)
+        dx = maxx - minx
+        dy = maxy - miny
+        return (
+            minx - dx * fraction,
+            miny - dy * fraction,
+            maxx + dx * fraction,
+            maxy + dy * fraction,
+        )
+
+    if lgas is not None and not lgas.empty:
+        try:
+            minx, miny, maxx, maxy = [float(v) for v in lgas.total_bounds]
+            dx = maxx - minx
+            dy = maxy - miny
+            return (
+                minx - dx * fraction,
+                miny - dy * fraction,
+                maxx + dx * fraction,
+                maxy + dy * fraction,
+            )
+        except Exception:
+            pass
 
     return (137.5, -29.6, 154.0, -8.8)
 
