@@ -396,11 +396,16 @@ def load_power_outages() -> tuple[gpd.GeoDataFrame, SourceState]:
         )
 
 
-def load_lga_boundaries() -> tuple[gpd.GeoDataFrame, SourceState]:
-    url = f"{config.QLD_LGA_LAYER_URL}/query"
+def _load_arcgis_geojson_layer(
+    layer_url: str,
+    *,
+    where: str = "1=1",
+    out_fields: str = "*",
+) -> tuple[gpd.GeoDataFrame, SourceState]:
+    url = f"{layer_url}/query"
     params = {
-        "where": "1=1",
-        "outFields": "*",
+        "where": where,
+        "outFields": out_fields,
         "returnGeometry": "true",
         "outSR": "4326",
         "f": "geojson",
@@ -417,6 +422,31 @@ def load_lga_boundaries() -> tuple[gpd.GeoDataFrame, SourceState]:
             timestamp=_iso_now(),
             url=url,
         )
+
+
+def load_lga_boundaries() -> tuple[gpd.GeoDataFrame, SourceState]:
+    return _load_arcgis_geojson_layer(config.QLD_LGA_LAYER_URL)
+
+
+def load_qld_coastline() -> tuple[gpd.GeoDataFrame, SourceState]:
+    return _load_arcgis_geojson_layer(
+        config.QLD_COASTLINE_LAYER_URL,
+        out_fields="feature_type",
+    )
+
+
+def load_qld_state_border() -> tuple[gpd.GeoDataFrame, SourceState]:
+    return _load_arcgis_geojson_layer(
+        config.QLD_STATE_BORDER_LAYER_URL,
+        out_fields="feature_type",
+    )
+
+
+def load_qld_mainland() -> tuple[gpd.GeoDataFrame, SourceState]:
+    return _load_arcgis_geojson_layer(
+        config.QLD_MAINLAND_LAYER_URL,
+        out_fields="feature_type,name",
+    )
 
 
 def warning_identifier(row: Any, fallback_index: int) -> str:
