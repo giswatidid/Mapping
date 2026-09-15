@@ -160,4 +160,6 @@ def test_draw_road_closures_separates_closed_and_restricted_events():
     assert info["road_events_in_extent"] == 2
     assert info["roads_closed"] == 1
     assert info["roads_restricted"] == 1
-    assert info["road_labels_shown"] == 2
+    # Full closures are labelled preferentially; restrictions remain visible
+    # but are not allowed to crowd out closed-road labels.
+    assert info["road_labels_shown"] == 1
