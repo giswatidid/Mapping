@@ -684,11 +684,6 @@ def _draw_road_closures(
             pass
 
         for part in _iter_geometry_parts(geom):
-            target = (
-                closed_lines if is_closed else restricted_lines
-                if part.geom_type in {"LineString", "LinearRing"}
-                else closed_points if is_closed else restricted_points
-            )
             if part.geom_type in {"LineString", "LinearRing"}:
                 target = closed_lines if is_closed else restricted_lines
                 target.append(part)
