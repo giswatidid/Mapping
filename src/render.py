@@ -653,7 +653,7 @@ def _draw_road_closures(
     # product to geometry intersecting Queensland's LGA coverage.
     if qld_mask is not None and not qld_mask.empty:
         try:
-            qld_geometry = qld_mask.geometry.unary_union
+            qld_geometry = qld_mask.geometry.union_all()
             visible = visible[visible.geometry.intersects(qld_geometry)].copy()
         except Exception:
             pass
