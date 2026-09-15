@@ -529,7 +529,7 @@ def _draw_outages(
             edgecolors="white",
             linewidths=0.8,
             alpha=0.95,
-            zorder=10.8,
+            zorder=8,
         )
 
     labels_shown = _draw_customer_labels(ax, label_candidates, bounds)
@@ -730,7 +730,7 @@ def _draw_road_closures(
             c="#f59e0b",
             edgecolors="white",
             linewidths=0.8,
-            zorder=8,
+            zorder=10.8,
         )
     if closed_points:
         ax.scatter(
