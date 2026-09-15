@@ -278,6 +278,7 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
             try:
                 radar_info = render_radar_map(
                     None,
+                    outages,
                     lgas,
                     config.OUTPUT_DIR / radar_filename,
                     title=f"{title_prefix} — Statewide Rain Radar",
@@ -343,6 +344,7 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
             try:
                 radar_info = render_radar_map(
                     scope_gdf,
+                    outages,
                     lgas,
                     radar_path,
                     title=f"{scope_title} — Rain Radar",
