@@ -135,6 +135,146 @@ def _label_field(lgas: gpd.GeoDataFrame) -> str | None:
     return None
 
 
+def _map_figure(
+    bounds: tuple[float, float, float, float],
+    *,
+    with_colorbar: bool = False,
+) -> tuple[Any, Any, Any | None]:
+    """Create a compact cartographic canvas sized to the actual map aspect."""
+    minx, miny, maxx, maxy = bounds
+    dx = max(maxx - minx, 0.1)
+    dy = max(maxy - miny, 0.1)
+    ratio = max(0.68, min(1.55, dx / dy))
+
+    map_height = 7.2
+    map_width = map_height * ratio
+    fig_height = 9.0
+    fig_width = map_width + (2.05 if with_colorbar else 1.25)
+    fig_width = max(7.2, min(12.0, fig_width))
+
+    fig = plt.figure(figsize=(fig_width, fig_height), dpi=150)
+    right = 0.80 if with_colorbar else 0.94
+    ax = fig.add_axes([0.065, 0.155, right - 0.065, 0.755])
+    cax = fig.add_axes([0.845, 0.205, 0.032, 0.625]) if with_colorbar else None
+    return fig, ax, cax
+
+
+def _draw_base_context(
+    ax: Any,
+    bounds: tuple[float, float, float, float],
+    *,
+    mainland: gpd.GeoDataFrame | None = None,
+    major_roads: gpd.GeoDataFrame | None = None,
+    population_centres: gpd.GeoDataFrame | None = None,
+) -> None:
+    """Draw a restrained Queensland reference base beneath operational layers."""
+    ax.set_facecolor("#eaf3f8")
+
+    if mainland is not None and not mainland.empty:
+        visible_land = clip_to_bounds(mainland, bounds)
+        if not visible_land.empty:
+            visible_land.plot(
+                ax=ax,
+                facecolor="#fbfaf5",
+                edgecolor="none",
+                alpha=1.0,
+                zorder=0.5,
+            )
+
+    if major_roads is not None and not major_roads.empty:
+        visible_roads = clip_to_bounds(major_roads, bounds)
+        if not visible_roads.empty:
+            visible_roads.plot(
+                ax=ax,
+                color="#c9bda9",
+                linewidth=0.65,
+                alpha=0.58,
+                zorder=1.1,
+            )
+
+    if population_centres is None or population_centres.empty:
+        return
+
+    visible_places = clip_to_bounds(population_centres, bounds).copy()
+    if visible_places.empty:
+        return
+
+    if "operational_status" in visible_places.columns:
+        status = visible_places["operational_status"].fillna("").astype(str).str.lower()
+        visible_places = visible_places[~status.isin({"abandoned", "historic"})].copy()
+    if visible_places.empty:
+        return
+
+    minx, miny, maxx, maxy = bounds
+    span = max(maxx - minx, maxy - miny)
+    if span >= 10:
+        min_population, limit, font_size = 10000, 24, 6.4
+    elif span >= 5:
+        min_population, limit, font_size = 3000, 28, 6.5
+    else:
+        min_population, limit, font_size = 500, 32, 6.7
+
+    if "population" in visible_places.columns:
+        population = gpd.pd.to_numeric(visible_places["population"], errors="coerce").fillna(0)
+        visible_places = visible_places.assign(_population=population)
+        preferred = visible_places[visible_places["_population"] >= min_population].copy()
+        if preferred.empty:
+            preferred = visible_places.nlargest(min(limit, len(visible_places)), "_population")
+        else:
+            preferred = preferred.nlargest(min(limit, len(preferred)), "_population")
+    else:
+        preferred = visible_places.head(limit).copy()
+        preferred["_population"] = 0
+
+    if preferred.empty:
+        return
+
+    preferred.plot(
+        ax=ax,
+        color="#667085",
+        markersize=7,
+        alpha=0.78,
+        zorder=1.35,
+    )
+
+    ax.figure.canvas.draw()
+    renderer = ax.figure.canvas.get_renderer()
+    axes_bbox = ax.get_window_extent(renderer=renderer)
+    accepted: list[Any] = []
+
+    for _, row in preferred.sort_values("_population", ascending=False).iterrows():
+        geom = row.geometry
+        name = str(row.get("name") or "").strip()
+        if geom is None or geom.is_empty or not name:
+            continue
+
+        text = ax.annotate(
+            name,
+            xy=(geom.x, geom.y),
+            xytext=(3, 2),
+            textcoords="offset points",
+            fontsize=font_size,
+            color="#475467",
+            ha="left",
+            va="bottom",
+            zorder=1.45,
+            clip_on=True,
+            path_effects=[],
+        )
+        bbox = text.get_window_extent(renderer=renderer).expanded(1.04, 1.10)
+        margin = 2.0
+        if (
+            bbox.x0 < axes_bbox.x0 + margin
+            or bbox.x1 > axes_bbox.x1 - margin
+            or bbox.y0 < axes_bbox.y0 + margin
+            or bbox.y1 > axes_bbox.y1 - margin
+            or any(bbox.overlaps(existing) for existing in accepted)
+        ):
+            text.remove()
+            continue
+        accepted.append(bbox)
+
+
 def _draw_lgas(
     ax: Any,
     lgas: gpd.GeoDataFrame,
@@ -277,7 +417,7 @@ def _place_legend(
     fig.legend(
         handles=handles,
         loc="lower center",
-        bbox_to_anchor=(0.5, 0.047),
+        bbox_to_anchor=(0.5, 0.060),
         ncol=columns,
         framealpha=0.96,
         fontsize=fontsize,
@@ -770,6 +910,8 @@ def render_road_closure_map(
     coastline: gpd.GeoDataFrame | None = None,
     state_border: gpd.GeoDataFrame | None = None,
     mainland: gpd.GeoDataFrame | None = None,
+    major_roads: gpd.GeoDataFrame | None = None,
+    population_centres: gpd.GeoDataFrame | None = None,
     show_restrictions: bool = True,
 ) -> dict[str, Any]:
     has_warning = warning_gdf is not None and not warning_gdf.empty
@@ -783,8 +925,14 @@ def render_road_closure_map(
         )
     )
 
-    fig, ax = plt.subplots(figsize=(12, 9), dpi=150)
-    ax.set_facecolor("#f8fafc")
+    fig, ax, _ = _map_figure(bounds)
+    _draw_base_context(
+        ax,
+        bounds,
+        mainland=mainland,
+        major_roads=major_roads,
+        population_centres=population_centres,
+    )
 
     _draw_lgas(
         ax,
@@ -995,8 +1143,7 @@ def render_infrastructure_map(
     _footer(ax, footer)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout(rect=(0.03, 0.13, 0.97, 0.90))
-    fig.savefig(output_path, bbox_inches="tight", pad_inches=0.12)
+    fig.savefig(output_path, bbox_inches="tight", pad_inches=0.08)
     plt.close(fig)
 
     return {
@@ -1011,9 +1158,14 @@ def _set_extent(ax: Any, bounds: tuple[float, float, float, float]) -> None:
     ax.set_xlim(minx, maxx)
     ax.set_ylim(miny, maxy)
     ax.set_aspect("equal", adjustable="box")
-    ax.set_xlabel("Longitude")
-    ax.set_ylabel("Latitude")
-    ax.grid(True, linewidth=0.35, alpha=0.22)
+    ax.set_xlabel("")
+    ax.set_ylabel("")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.grid(False)
+    for spine in ax.spines.values():
+        spine.set_color("#98a2b3")
+        spine.set_linewidth(0.75)
 
 
 def _display_time(value: str | None) -> str | None:
@@ -1031,17 +1183,17 @@ def _display_time(value: str | None) -> str | None:
 
 def _footer(ax: Any, lines: Iterable[str]) -> None:
     text = "  |  ".join(line for line in lines if line)
-    ax.figure.text(0.5, 0.018, text, ha="center", va="bottom", fontsize=7.5, color="#4b5563")
+    ax.figure.text(0.5, 0.014, text, ha="center", va="bottom", fontsize=6.8, color="#667085")
 
 
 def _figure_title(fig: Any, title: str) -> None:
     wrapped = textwrap.fill(title, width=72)
     fig.suptitle(
         wrapped,
-        fontsize=13.5,
+        fontsize=12.6,
         fontweight="bold",
         x=0.5,
-        y=0.975,
+        y=0.968,
         ha="center",
         va="top",
     )
@@ -1156,6 +1308,8 @@ def render_radar_map(
     coastline: gpd.GeoDataFrame | None = None,
     state_border: gpd.GeoDataFrame | None = None,
     mainland: gpd.GeoDataFrame | None = None,
+    major_roads: gpd.GeoDataFrame | None = None,
+    population_centres: gpd.GeoDataFrame | None = None,
 ) -> dict[str, Any]:
     """Render warning geometry with radar overlaid.
 
@@ -1175,9 +1329,16 @@ def render_radar_map(
     )
     radar = fetch_bom_radar(bounds)
 
-    fig, ax = plt.subplots(figsize=(12, 9), dpi=150)
-    ax.set_facecolor("#e8eef2")
+    fig, ax, cax = _map_figure(bounds, with_colorbar=True)
     minx, miny, maxx, maxy = bounds
+
+    _draw_base_context(
+        ax,
+        bounds,
+        mainland=mainland,
+        major_roads=major_roads,
+        population_centres=population_centres,
+    )
 
     # Base context first. Warning-extent maps show LGA names; statewide quiet
     # maps keep labels off to avoid clutter.
@@ -1251,9 +1412,7 @@ def render_radar_map(
     scalar.set_array([])
     colorbar = fig.colorbar(
         scalar,
-        ax=ax,
-        fraction=0.035,
-        pad=0.025,
+        cax=cax,
         ticks=[index + 0.5 for index in range(len(labels))],
     )
     colorbar.ax.set_yticklabels(labels, fontsize=6.5)
@@ -1271,8 +1430,7 @@ def render_radar_map(
     _footer(ax, footer)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout(rect=(0.03, 0.13, 0.97, 0.90))
-    fig.savefig(output_path, bbox_inches="tight", pad_inches=0.12)
+    fig.savefig(output_path, bbox_inches="tight", pad_inches=0.08)
     plt.close(fig)
 
     return {
