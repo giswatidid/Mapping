@@ -559,6 +559,8 @@ def normalise_qldtraffic_road_closures(
             }
         )
 
+    if not rows:
+        return _empty_gdf()
     return gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326")
 
 
