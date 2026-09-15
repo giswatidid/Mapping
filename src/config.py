@@ -28,7 +28,7 @@ QLD_COASTLINE_LAYER_URL = os.getenv(
 QLD_STATE_BORDER_LAYER_URL = os.getenv(
     "QLD_STATE_BORDER_LAYER_URL",
     "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/"
-    "Boundaries/AdminBoundariesFramework/FeatureServer/201",
+    "Basemaps/FoundationData/FeatureServer/5",
 )
 QLD_MAINLAND_LAYER_URL = os.getenv(
     "QLD_MAINLAND_LAYER_URL",
