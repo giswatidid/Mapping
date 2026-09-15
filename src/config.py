@@ -14,8 +14,7 @@ POWER_OUTAGE_URL = os.getenv(
 
 ROAD_CLOSURES_URL = os.getenv(
     "ROAD_CLOSURES_URL",
-    "https://raw.githubusercontent.com/gowlettluke/qld_only_isolation/main/"
-    "out_isolation_current/closures_qld_current.geojson",
+    "https://data.qldtraffic.qld.gov.au/events_v2.geojson",
 )
 
 QLD_LGA_LAYER_URL = os.getenv(
