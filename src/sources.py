@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 import xml.etree.ElementTree as ET
 
@@ -396,41 +396,184 @@ def load_power_outages() -> tuple[gpd.GeoDataFrame, SourceState]:
         )
 
 
-def filter_road_closures(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """Keep map-relevant current road closures/restrictions only.
+def _qldtraffic_datetime(value: Any) -> datetime | None:
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone(timedelta(hours=10)))
+    return parsed.astimezone(timezone.utc)
 
-    qld_only_isolation already performs the difficult temporal filtering,
-    area-alert handling, passability normalisation and ferry-status injection.
-    This project therefore consumes that normalised output and shows only
-    genuinely impassable or conditional-access events.
-    """
+
+def _qldtraffic_is_current(props: dict[str, Any], now: datetime) -> bool:
+    status = str(props.get("status") or "").strip().lower()
+    if status and status != "published":
+        return False
+
+    duration = props.get("duration") if isinstance(props.get("duration"), dict) else {}
+    start = _qldtraffic_datetime(duration.get("start"))
+    end = _qldtraffic_datetime(duration.get("end"))
+
+    if start is not None and now < start:
+        return False
+    if end is not None and now > end:
+        return False
+    return True
+
+
+def _qldtraffic_passability(props: dict[str, Any]) -> str | None:
+    impact = props.get("impact") if isinstance(props.get("impact"), dict) else {}
+    impact_type = str(impact.get("impact_type") or "").strip().lower()
+    impact_subtype = str(impact.get("impact_subtype") or "").strip().lower()
+    description = str(props.get("description") or "").strip().lower()
+    advice = str(props.get("advice") or "").strip().lower()
+    text = " ".join((impact_type, impact_subtype, description, advice))
+
+    hard_close_markers = (
+        "road closed to all traffic",
+        "road closed",
+        "closed to all vehicles",
+        "closed to all traffic",
+        "road is closed",
+    )
+    if any(marker in text for marker in hard_close_markers):
+        return "impassable"
+
+    if impact_type == "closures":
+        # A generic closure may be a lane/partial closure rather than a fully
+        # impassable road. Be conservative unless the upstream text explicitly
+        # says the road itself is closed.
+        if any(marker in text for marker in ("lane", "partial", "shoulder")):
+            return "passable_with_conditions"
+        return "impassable"
+
+    if impact_type in {"road restricted", "lanes affected"}:
+        return "passable_with_conditions"
+
+    if any(marker in text for marker in ("road restricted", "lane closure", "lanes affected")):
+        return "passable_with_conditions"
+
+    return None
+
+
+def _qldtraffic_line_parts(geom: Any) -> list[Any]:
+    if geom is None or geom.is_empty:
+        return []
+    if geom.geom_type in {"LineString", "MultiLineString"}:
+        if geom.geom_type == "LineString":
+            return [geom]
+        return [part for part in geom.geoms if not part.is_empty]
+    if geom.geom_type == "GeometryCollection":
+        parts: list[Any] = []
+        for child in geom.geoms:
+            parts.extend(_qldtraffic_line_parts(child))
+        return parts
+    return []
+
+
+def normalise_qldtraffic_road_closures(
+    payload: dict[str, Any],
+    now: datetime | None = None,
+) -> gpd.GeoDataFrame:
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    features = payload.get("features") if isinstance(payload.get("features"), list) else []
+    rows: list[dict[str, Any]] = []
+
+    for feature in features:
+        if not isinstance(feature, dict):
+            continue
+        props = feature.get("properties") if isinstance(feature.get("properties"), dict) else {}
+        if not _qldtraffic_is_current(props, now):
+            continue
+
+        passability = _qldtraffic_passability(props)
+        if passability is None:
+            continue
+
+        geometry_payload = feature.get("geometry")
+        if not geometry_payload:
+            continue
+        try:
+            geom = shape(geometry_payload)
+        except Exception:
+            continue
+        if geom.is_empty:
+            continue
+
+        area_alert = props.get("area_alert")
+        area_alert_truthy = (
+            area_alert is True
+            or str(area_alert).strip().lower() in {"1", "true", "t", "yes", "y"}
+        )
+        if area_alert_truthy:
+            lines = _qldtraffic_line_parts(geom)
+            if not lines:
+                # Area-alert polygons/points are alert extents, not proof that
+                # every road inside the polygon is closed.
+                continue
+            geom = unary_union(lines)
+
+        road = props.get("road_summary") if isinstance(props.get("road_summary"), dict) else {}
+        impact = props.get("impact") if isinstance(props.get("impact"), dict) else {}
+        road_name = str(road.get("road_name") or props.get("road_name") or "").strip()
+        locality = str(road.get("locality") or props.get("locality") or "").strip()
+        impact_subtype = str(impact.get("impact_subtype") or "").strip()
+        description = str(props.get("description") or "").strip()
+        title = (
+            str(props.get("alert_message") or "").strip()
+            or description
+            or " — ".join(part for part in (road_name, impact_subtype) if part)
+            or "QLD Traffic road event"
+        )
+
+        rows.append(
+            {
+                "source_event_id": props.get("id"),
+                "passability_norm": passability,
+                "status_norm": "active",
+                "road_name": road_name,
+                "locality": locality,
+                "title": title,
+                "description": description,
+                "impact_type": str(impact.get("impact_type") or "").strip(),
+                "impact_subtype": impact_subtype,
+                "event_type": str(props.get("event_type") or "").strip(),
+                "event_subtype": str(props.get("event_subtype") or "").strip(),
+                "last_updated": str(props.get("last_updated") or "").strip(),
+                "url": str(
+                    props.get("url")
+                    or props.get("web_link")
+                    or (
+                        f"https://api.qldtraffic.qld.gov.au/v2/events/{props.get('id')}"
+                        if props.get("id") not in (None, "")
+                        else ""
+                    )
+                ).strip(),
+                "geometry": geom,
+            }
+        )
+
+    return gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326")
+
+
+def filter_road_closures(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     if gdf.empty:
         return gdf
-
     filtered = gdf.copy()
-
     if "status_norm" in filtered.columns:
         status = filtered["status_norm"].fillna("").astype(str).str.lower().str.strip()
         filtered = filtered[status.eq("active")].copy()
-
     if "passability_norm" in filtered.columns:
-        passability = (
-            filtered["passability_norm"].fillna("").astype(str).str.lower().str.strip()
-        )
+        passability = filtered["passability_norm"].fillna("").astype(str).str.lower().str.strip()
         filtered = filtered[
             passability.isin({"impassable", "passable_with_conditions"})
         ].copy()
-    elif "category_norm" in filtered.columns:
-        category = filtered["category_norm"].fillna("").astype(str).str.lower().str.strip()
-        filtered = filtered[
-            category.isin({"road_closed", "road_restricted", "open_with_caution"})
-        ].copy()
-
-    if not filtered.empty:
-        filtered = filtered[
-            filtered.geometry.notna() & ~filtered.geometry.is_empty
-        ].copy()
-
     return filtered
 
 
@@ -439,13 +582,14 @@ def load_road_closures() -> tuple[gpd.GeoDataFrame, SourceState]:
     try:
         r = _session().get(url, timeout=config.HTTP_TIMEOUT)
         r.raise_for_status()
-        gdf = filter_road_closures(_to_gdf(r.json()))
+        payload = r.json()
+        gdf = normalise_qldtraffic_road_closures(payload)
 
         timestamp = _iso_now()
-        if not gdf.empty and "fetched_at" in gdf.columns:
+        if not gdf.empty and "last_updated" in gdf.columns:
             values = [
                 str(value).strip()
-                for value in gdf["fetched_at"].tolist()
+                for value in gdf["last_updated"].tolist()
                 if value not in (None, "") and str(value).strip()
             ]
             if values:
@@ -454,8 +598,9 @@ def load_road_closures() -> tuple[gpd.GeoDataFrame, SourceState]:
         return gdf, SourceState(
             status="ok",
             message=(
-                "Current QLD Traffic road closures/restrictions normalised by "
-                "qld_only_isolation, including live ferry closure injections."
+                "Live QLD Traffic events filtered to current road closures and "
+                "conditional-access restrictions. Area-alert polygons are not "
+                "treated as closed roads unless explicit road-line geometry is supplied."
             ),
             timestamp=timestamp,
             url=url,
