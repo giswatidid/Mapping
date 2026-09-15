@@ -574,12 +574,17 @@ def _draw_road_labels(
     if span > 6.0 or not candidates:
         return 0
 
-    # Closed roads are priority 0, conditional restrictions priority 1.
+    # If full closures are present, label those only. Restrictions remain
+    # visible in orange but do not crowd out the higher-priority closed roads.
+    closed_candidates = [item for item in candidates if item[0] == 0]
+    if closed_candidates:
+        candidates = closed_candidates
     candidates = sorted(candidates, key=lambda item: (item[0], item[1]))
-    limit = 18 if span <= 3.5 else 12
+    limit = 12 if span <= 3.5 else 8
 
     ax.figure.canvas.draw()
     renderer = ax.figure.canvas.get_renderer()
+    axes_bbox = ax.get_window_extent(renderer=renderer)
     accepted: list[Any] = []
     shown = 0
 
@@ -609,6 +614,15 @@ def _draw_road_labels(
             },
         )
         bbox = text.get_window_extent(renderer=renderer).expanded(1.08, 1.18)
+        margin = 4.0
+        if (
+            bbox.x0 < axes_bbox.x0 + margin
+            or bbox.x1 > axes_bbox.x1 - margin
+            or bbox.y0 < axes_bbox.y0 + margin
+            or bbox.y1 > axes_bbox.y1 - margin
+        ):
+            text.remove()
+            continue
         if any(bbox.overlaps(existing) for existing in accepted):
             text.remove()
             continue
@@ -624,6 +638,7 @@ def _draw_road_closures(
     bounds: tuple[float, float, float, float],
     *,
     qld_mask: gpd.GeoDataFrame | None = None,
+    show_restrictions: bool = True,
 ) -> dict[str, int]:
     visible = clip_to_bounds(closures, bounds)
     if visible.empty:
@@ -668,6 +683,8 @@ def _draw_road_closures(
             closed_count += 1
         else:
             restricted_count += 1
+            if not show_restrictions:
+                continue
 
         road_name = str(row.get("road_name") or "").strip()
         locality = str(row.get("locality") or "").strip()
@@ -765,6 +782,7 @@ def render_road_closure_map(
     coastline: gpd.GeoDataFrame | None = None,
     state_border: gpd.GeoDataFrame | None = None,
     mainland: gpd.GeoDataFrame | None = None,
+    show_restrictions: bool = True,
 ) -> dict[str, Any]:
     has_warning = warning_gdf is not None and not warning_gdf.empty
     bounds = (
@@ -798,6 +816,7 @@ def render_road_closure_map(
         closures,
         bounds,
         qld_mask=lgas,
+        show_restrictions=show_restrictions,
     )
     _set_extent(ax, bounds)
     _figure_title(fig, title)
@@ -806,8 +825,17 @@ def render_road_closure_map(
         Line2D([0], [0], color="#344054", lw=1.6, label="Queensland coastline / state border"),
         Line2D([0], [0], color="#7a8790", lw=0.8, label="Local government area boundary"),
         Line2D([0], [0], color="#dc2626", lw=2.7, label="Road closed / impassable"),
-        Line2D([0], [0], color="#f59e0b", lw=2.0, label="Road restricted / conditional access"),
     ]
+    if show_restrictions:
+        legend.append(
+            Line2D(
+                [0],
+                [0],
+                color="#f59e0b",
+                lw=2.0,
+                label="Road restricted / conditional access",
+            )
+        )
     if has_warning:
         legend.insert(
             0,
@@ -829,7 +857,12 @@ def render_road_closure_map(
     if not has_warning:
         footer.append("No active Queensland severe thunderstorm warnings")
     footer.append(f"{road_info['roads_closed']} closed")
-    footer.append(f"{road_info['roads_restricted']} restricted / conditional")
+    if show_restrictions:
+        footer.append(f"{road_info['roads_restricted']} restricted / conditional")
+    elif road_info["roads_restricted"]:
+        footer.append(
+            f"{road_info['roads_restricted']} restricted / conditional events omitted at statewide scale"
+        )
     _footer(ax, footer)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
