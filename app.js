@@ -124,7 +124,7 @@ function render(manifest) {
   if (manifest.status === "source_unconfigured") {
     els.message.textContent = "The warning source is not configured.";
   } else if (manifest.status === "no_active_warnings") {
-    els.message.textContent = "The official warning feed was checked successfully and there are no current Queensland severe thunderstorm warnings.";
+    els.message.textContent = "No active Queensland severe thunderstorm warnings. Statewide Queensland context maps are shown instead.";
   } else if (errors.length) {
     els.message.textContent = errors.join(" · ");
   } else {
@@ -140,7 +140,7 @@ function render(manifest) {
   els.empty.hidden = maps.length > 0;
   if (!maps.length) {
     els.empty.textContent = manifest.status === "no_active_warnings"
-      ? "No maps are required because there are no active warnings."
+      ? "Statewide context maps could not be generated."
       : "No generated maps are currently available.";
   }
 
