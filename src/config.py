@@ -18,6 +18,24 @@ QLD_LGA_LAYER_URL = os.getenv(
     "Boundaries/AdminBoundariesFramework/FeatureServer/11",
 )
 
+# Cartographic reference layers used to make the Queensland land/coastline
+# visually distinct from LGA administrative boundaries.
+QLD_COASTLINE_LAYER_URL = os.getenv(
+    "QLD_COASTLINE_LAYER_URL",
+    "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/"
+    "Basemaps/FoundationData/FeatureServer/55",
+)
+QLD_STATE_BORDER_LAYER_URL = os.getenv(
+    "QLD_STATE_BORDER_LAYER_URL",
+    "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/"
+    "Boundaries/AdminBoundariesFramework/FeatureServer/201",
+)
+QLD_MAINLAND_LAYER_URL = os.getenv(
+    "QLD_MAINLAND_LAYER_URL",
+    "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/"
+    "Location/GeographicalFeatures/FeatureServer/90",
+)
+
 # Warning discovery. A registered spatial override can still be supplied later;
 # otherwise the official BOM CAP feed is used.
 BOM_WARNING_GEOJSON_URL = os.getenv("BOM_WARNING_GEOJSON_URL", "").strip()
