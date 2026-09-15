@@ -305,19 +305,20 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                 road_closures,
                 lgas,
                 config.OUTPUT_DIR / roads_filename,
-                title=f"{title_prefix} — Statewide Road Closures & Restrictions",
+                title=f"{title_prefix} — Statewide Road Closures",
                 generated_at=generated_at,
                 bounds_override=bounds,
                 coastline=coastline,
                 state_border=state_border,
                 mainland=mainland,
+                show_restrictions=False,
             )
             manifest["maps"].append(
                 {
                     "kind": "roads",
                     "scope": "statewide",
                     "warning_id": None,
-                    "title": f"{title_prefix} — Statewide Road Closures & Restrictions",
+                    "title": f"{title_prefix} — Statewide Road Closures",
                     "filename": roads_filename,
                     **roads_info,
                 }
