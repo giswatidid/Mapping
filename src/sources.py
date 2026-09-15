@@ -436,9 +436,11 @@ def load_qld_coastline() -> tuple[gpd.GeoDataFrame, SourceState]:
 
 
 def load_qld_state_border() -> tuple[gpd.GeoDataFrame, SourceState]:
+    # Queensland Border (FoundationData layer 5) uses border_desc/state_desc
+    # rather than feature_type.
     return _load_arcgis_geojson_layer(
         config.QLD_STATE_BORDER_LAYER_URL,
-        out_fields="feature_type",
+        out_fields="border_desc,state_desc",
     )
 
 
