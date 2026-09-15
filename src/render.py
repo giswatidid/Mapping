@@ -25,6 +25,30 @@ def padded_bounds(gdf: gpd.GeoDataFrame, fraction: float = 0.09, minimum: float 
     return minx - padx, miny - pady, maxx + padx, maxy + pady
 
 
+def statewide_bounds(lgas: gpd.GeoDataFrame, fraction: float = 0.025) -> tuple[float, float, float, float]:
+    """Return a stable whole-of-Queensland map extent.
+
+    Prefer the live Queensland LGA dataset so offshore LGAs/islands are included.
+    Fall back to a conservative Queensland extent if that source is unavailable.
+    """
+    if lgas is not None and not lgas.empty:
+        try:
+            minx, miny, maxx, maxy = [float(v) for v in lgas.total_bounds]
+            if maxx > minx and maxy > miny:
+                dx = maxx - minx
+                dy = maxy - miny
+                return (
+                    minx - dx * fraction,
+                    miny - dy * fraction,
+                    maxx + dx * fraction,
+                    maxy + dy * fraction,
+                )
+        except Exception:
+            pass
+
+    return (137.5, -29.6, 154.0, -8.8)
+
+
 def clip_to_bounds(gdf: gpd.GeoDataFrame, bounds: tuple[float, float, float, float]) -> gpd.GeoDataFrame:
     if gdf.empty:
         return gdf
@@ -64,12 +88,16 @@ def _draw_lgas(
     lgas: gpd.GeoDataFrame,
     bounds: tuple[float, float, float, float],
     focus_gdf: gpd.GeoDataFrame | None = None,
+    show_labels: bool = True,
 ) -> None:
     visible = clip_to_bounds(lgas, bounds)
     if visible.empty:
         return
 
     visible.boundary.plot(ax=ax, color="#5f6b73", linewidth=0.7, alpha=0.85, zorder=2)
+
+    if not show_labels:
+        return
 
     field = _label_field(visible)
     if not field:
@@ -229,34 +257,61 @@ def _figure_title(fig: Any, title: str) -> None:
 
 
 def render_outage_map(
-    warning_gdf: gpd.GeoDataFrame,
+    warning_gdf: gpd.GeoDataFrame | None,
     outages: gpd.GeoDataFrame,
     lgas: gpd.GeoDataFrame,
     output_path: Path,
     title: str,
     generated_at: str,
     warning_time: str | None = None,
+    bounds_override: tuple[float, float, float, float] | None = None,
+    show_lga_labels: bool = True,
 ) -> dict[str, Any]:
-    bounds = padded_bounds(warning_gdf)
+    has_warning = warning_gdf is not None and not warning_gdf.empty
+    bounds = (
+        bounds_override
+        if bounds_override is not None
+        else (padded_bounds(warning_gdf) if has_warning else statewide_bounds(lgas))
+    )
+
     fig, ax = plt.subplots(figsize=(12, 9), dpi=150)
     ax.set_facecolor("#f8fafc")
 
-    _draw_lgas(ax, lgas, bounds, focus_gdf=warning_gdf)
-    _draw_warning(ax, warning_gdf)
+    _draw_lgas(
+        ax,
+        lgas,
+        bounds,
+        focus_gdf=warning_gdf if has_warning else None,
+        show_labels=show_lga_labels,
+    )
+    if has_warning:
+        _draw_warning(ax, warning_gdf)
+
     outage_count = _draw_outages(ax, outages, bounds)
     _set_extent(ax, bounds)
 
     _figure_title(fig, title)
     legend = [
-        Patch(facecolor="#ffd43b", edgecolor="#b23a00", alpha=0.35, label="BOM severe thunderstorm warning area"),
         Line2D([0], [0], color="#5f6b73", lw=1.1, label="Local government area boundary"),
         Line2D([0], [0], marker="o", color="w", markerfacecolor="#dc2626", markeredgecolor="white", markersize=9, label="Current unplanned power outage"),
     ]
+    if has_warning:
+        legend.insert(
+            0,
+            Patch(
+                facecolor="#ffd43b",
+                edgecolor="#b23a00",
+                alpha=0.35,
+                label="BOM severe thunderstorm warning area",
+            ),
+        )
     ax.legend(handles=legend, loc="lower left", framealpha=0.95, fontsize=9)
 
     footer = [f"Generated {_display_time(generated_at)}"]
     if warning_time:
         footer.append(f"Warning issued {_display_time(warning_time)}")
+    if not has_warning:
+        footer.append("No active Queensland severe thunderstorm warnings")
     footer.append(f"{outage_count} unplanned outage locations shown in map extent")
     _footer(ax, footer)
 
@@ -269,14 +324,20 @@ def render_outage_map(
 
 
 def render_radar_map(
-    warning_gdf: gpd.GeoDataFrame,
+    warning_gdf: gpd.GeoDataFrame | None,
     lgas: gpd.GeoDataFrame,
     output_path: Path,
     title: str,
     generated_at: str,
     warning_time: str | None = None,
+    bounds_override: tuple[float, float, float, float] | None = None,
 ) -> dict[str, Any]:
-    bounds = padded_bounds(warning_gdf)
+    has_warning = warning_gdf is not None and not warning_gdf.empty
+    bounds = (
+        bounds_override
+        if bounds_override is not None
+        else (padded_bounds(warning_gdf) if has_warning else statewide_bounds(lgas))
+    )
     radar = fetch_bom_radar(bounds)
 
     fig, ax = plt.subplots(figsize=(12, 9), dpi=150)
@@ -300,28 +361,33 @@ def render_radar_map(
             zorder=4,
         )
 
-    warning_gdf.plot(
-        ax=ax,
-        facecolor="#ffd43b",
-        edgecolor="#b42318",
-        linewidth=2.6,
-        alpha=0.13,
-        zorder=7,
-    )
-    warning_gdf.boundary.plot(ax=ax, color="#b42318", linewidth=2.6, zorder=8)
-    _set_extent(ax, bounds)
+    if has_warning:
+        warning_gdf.plot(
+            ax=ax,
+            facecolor="#ffd43b",
+            edgecolor="#b42318",
+            linewidth=2.6,
+            alpha=0.13,
+            zorder=7,
+        )
+        warning_gdf.boundary.plot(ax=ax, color="#b42318", linewidth=2.6, zorder=8)
 
+    _set_extent(ax, bounds)
     _figure_title(fig, title)
 
     context_legend = [
-        Patch(
-            facecolor="#ffd43b",
-            edgecolor="#b42318",
-            alpha=0.28,
-            label="BOM severe thunderstorm warning area",
-        ),
         Line2D([0], [0], color="white", lw=1.4, label="Local government area boundary"),
     ]
+    if has_warning:
+        context_legend.insert(
+            0,
+            Patch(
+                facecolor="#ffd43b",
+                edgecolor="#b42318",
+                alpha=0.28,
+                label="BOM severe thunderstorm warning area",
+            ),
+        )
     ax.legend(handles=context_legend, loc="lower left", framealpha=0.92, fontsize=8)
 
     if radar.legend_kind == "rain_rate":
@@ -357,6 +423,8 @@ def render_radar_map(
     ]
     if warning_time:
         footer.append(f"Warning issued {_display_time(warning_time)}")
+    if not has_warning:
+        footer.append("No active Queensland severe thunderstorm warnings")
     _footer(ax, footer)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
