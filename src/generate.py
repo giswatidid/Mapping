@@ -14,6 +14,9 @@ from .sources import (
     SourceState,
     load_lga_boundaries,
     load_power_outages,
+    load_qld_coastline,
+    load_qld_mainland,
+    load_qld_state_border,
     load_warning_geometries,
     warning_identifier,
     warning_time,
@@ -140,6 +143,9 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
             "warnings": warning_state.as_dict(),
             "outages": None,
             "lgas": None,
+            "coastline": None,
+            "state_border": None,
+            "mainland": None,
             "radar": {
                 "status": "not_checked",
                 "provider": (
@@ -179,11 +185,17 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
 
     outages, outage_state = load_power_outages()
     lgas, lga_state = load_lga_boundaries()
+    coastline, coastline_state = load_qld_coastline()
+    state_border, state_border_state = load_qld_state_border()
+    mainland, mainland_state = load_qld_mainland()
 
     warning_meta = build_warning_metadata(warnings) if not warnings.empty else []
     manifest["warnings"] = warning_meta
     manifest["sources"]["outages"] = outage_state.as_dict()
     manifest["sources"]["lgas"] = lga_state.as_dict()
+    manifest["sources"]["coastline"] = coastline_state.as_dict()
+    manifest["sources"]["state_border"] = state_border_state.as_dict()
+    manifest["sources"]["mainland"] = mainland_state.as_dict()
 
     if lga_state.status != "ok":
         manifest["errors"].append(f"LGA source: {lga_state.message}")
@@ -248,7 +260,11 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
     if warnings.empty and warning_state.status == "no_active_warnings":
         # Quiet-day fallback: always publish useful statewide context maps.
         # LGA labels are suppressed at this scale, but boundaries remain visible.
-        bounds = statewide_bounds(lgas)
+        bounds = statewide_bounds(
+            lgas,
+            state_border=state_border,
+            coastline=coastline,
+        )
         title_prefix = "No current Queensland severe thunderstorm warnings"
 
         outage_filename = "warning-outages-statewide.png"
@@ -261,6 +277,9 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
             generated_at=generated_at,
             bounds_override=bounds,
             show_lga_labels=False,
+            coastline=coastline,
+            state_border=state_border,
+            mainland=mainland,
         )
         manifest["maps"].append(
             {
@@ -284,6 +303,9 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                     title=f"{title_prefix} — Statewide Rain Radar",
                     generated_at=generated_at,
                     bounds_override=bounds,
+                    coastline=coastline,
+                    state_border=state_border,
+                    mainland=mainland,
                 )
                 manifest["maps"].append(
                     {
@@ -326,6 +348,9 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
             title=f"{scope_title} — Unplanned Power Outages",
             generated_at=generated_at,
             warning_time=issued,
+            coastline=coastline,
+            state_border=state_border,
+            mainland=mainland,
         )
         manifest["maps"].append(
             {
@@ -350,6 +375,9 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                     title=f"{scope_title} — Rain Radar",
                     generated_at=generated_at,
                     warning_time=issued,
+                    coastline=coastline,
+                    state_border=state_border,
+                    mainland=mainland,
                 )
                 manifest["maps"].append(
                     {
