@@ -4,13 +4,12 @@ Generate publication-ready maps from current Queensland Bureau of Meteorology se
 
 ## Intended outputs
 
-For every current Queensland severe thunderstorm warning:
+The generator publishes exactly two operational map products for the current Queensland severe-thunderstorm situation:
 
-1. **Warning + unplanned power outages + LGA boundaries**
-2. **Warning + current road closures/restrictions**
-3. **Warning + current rain radar**
+1. **Warning + radar** — warning geometry with current radar overlaid.
+2. **Warning + infrastructure impacts** — warning geometry with current unplanned power outages and QLD Traffic road closures/restrictions overlaid.
 
-When more than one warning is active, the generator also produces a combined extent containing all current warning areas and separate maps for each warning.
+When more than one warning is active, both products use a single combined extent containing all current warning areas. When no warning is active, the same two products are generated at statewide Queensland scale.
 
 ## Data sources
 
@@ -94,8 +93,9 @@ Implemented:
 - live QLD Traffic road closure/restriction ingestion and temporal filtering
 - Queensland LGA boundary ingestion and labels
 - combined-warning extent calculation
-- individual maps when multiple warnings are active
-- static PNG warning/outage map with legend and timestamps
+- exactly two operational products: radar and infrastructure impacts
+- warning-extent LGA labels drawn as low-priority background context
+- combined power-outage and road-condition infrastructure renderer
 - RainViewer Web Mercator radar renderer with warning/LGA overlay and dBZ key
 - optional authorised BOM GIS2Web WMS fallback
 - BOM national-mosaic and legacy PSBA diagnostic workflows
@@ -165,22 +165,33 @@ If `BOM_WARNING_GEOJSON_URL` is set, it takes precedence over CAP and may return
 
 ## Cartographic overlap rules
 
-Power-outage features are rendered from their true GeoJSON geometry rather than being reduced to centroids.
+The two products use deliberately different layer priorities.
 
-Layer priority is:
+**Warning + radar**
 
-1. radar/base imagery
-2. LGA boundaries
-3. thunderstorm-warning fill
-4. outage polygons/points
-5. thunderstorm-warning outline
-6. customer-count labels
+1. Queensland land/coastline and state border
+2. LGA boundaries and LGA-name labels
+3. severe-thunderstorm warning fill
+4. radar imagery
+5. severe-thunderstorm warning outline
 
-This keeps outage areas and customer counts readable without losing the warning boundary. On radar maps the warning fill is intentionally very faint and its amber boundary is dashed; outage areas use a translucent red fill with a dark-red outline.
+LGA names are intentionally low-priority context: radar echoes and warning graphics may cover them. The warning outline remains above radar so the operational warning extent is still clear.
 
-Customer labels use the normalised `affected_customers` value when it is known. Labels are placed at a polygon representative point (therefore inside the polygon), prioritised from largest to smallest outage, and suppressed when they would overlap another higher-priority label. The label cap varies with map scale: statewide/large extents show fewer labels than local warning extents. Point symbols are retained only where an outage source does not provide a polygon.
+**Warning + infrastructure impacts**
 
-The map footer records the number of outages and the total known customers affected in the map extent.
+1. Queensland land/coastline and state border
+2. LGA boundaries and LGA-name labels
+3. severe-thunderstorm warning fill and outline
+4. power-outage polygons/points
+5. road closures/restrictions
+6. road labels
+7. outage customer-count labels
+
+Power outages are rendered from their true GeoJSON geometry rather than being reduced to centroids. Customer labels use the normalised `affected_customers` value when known, are placed inside polygons using representative points, and are collision-suppressed with larger outages prioritised.
+
+Road closures are rendered red and conditional/restricted access amber. Full closures receive label priority over restrictions. On the statewide quiet-day infrastructure map, conditional restrictions are omitted from the drawing to prevent hundreds of lower-priority events obscuring the statewide operational picture; their count is still reported.
+
+On active-warning maps, LGA names are shown for LGAs intersecting the warning extent. On statewide quiet-day maps, LGA names are suppressed to avoid clutter. Legends sit outside the map frame so they never cover operational data.
 
 ## Output
 
@@ -189,18 +200,13 @@ Generated files are written under:
 ```text
 generated/
   manifest.json
-  warning-outages-combined.png
-  warning-roads-combined.png
   warning-radar-combined.png
-  warning-outages-<warning-id>.png
-  warning-roads-<warning-id>.png
-  warning-radar-<warning-id>.png
-  warning-outages-statewide.png
-  warning-roads-statewide.png
+  warning-infrastructure-combined.png
   warning-radar-statewide.png
+  warning-infrastructure-statewide.png
 ```
 
-With one warning, the combined view is the operational view. With multiple warnings, the generator creates the combined view plus maps for each warning.
+With one or more active warnings, the generator creates only the two combined operational products. With no active warnings, it creates the same two products at statewide scale.
 
 The manifest contains generation time, source status, warning metadata, map bounds, filenames and generation errors/warnings.
 
