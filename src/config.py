@@ -12,6 +12,12 @@ POWER_OUTAGE_URL = os.getenv(
     "https://raw.githubusercontent.com/gowlettluke/qldpoweroutages/main/data/current_outages.geojson",
 )
 
+ROAD_CLOSURES_URL = os.getenv(
+    "ROAD_CLOSURES_URL",
+    "https://raw.githubusercontent.com/gowlettluke/qld_only_isolation/main/"
+    "out_isolation_current/closures_qld_current.geojson",
+)
+
 QLD_LGA_LAYER_URL = os.getenv(
     "QLD_LGA_LAYER_URL",
     "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/"
