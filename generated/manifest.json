@@ -1,26 +1,26 @@
 {
-  "generated_at": "2026-09-15T12:38:05+10:00",
+  "generated_at": "2026-09-15T12:44:36+10:00",
   "mode": "live",
   "status": "no_active_warnings",
   "sources": {
     "warnings": {
       "status": "no_active_warnings",
       "message": "No active Queensland severe thunderstorm CAP warnings remained after validity filtering.",
-      "timestamp": "2026-09-15T02:38:14Z",
+      "timestamp": "2026-09-15T02:44:46Z",
       "url": "https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/rss.xml",
       "count": 0
     },
     "outages": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-15T02:38:14Z",
+      "timestamp": "2026-09-15T02:44:46Z",
       "url": "https://raw.githubusercontent.com/gowlettluke/qldpoweroutages/main/data/current_outages.geojson",
       "count": 5
     },
     "lgas": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-15T02:38:20Z",
+      "timestamp": "2026-09-15T02:44:53Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdminBoundariesFramework/FeatureServer/11/query?where=1%3D1&outFields=%2A&returnGeometry=true&outSR=4326&f=geojson",
       "count": 78
     },
@@ -30,7 +30,7 @@
       "url": "https://api.rainviewer.com/public/weather-maps.json",
       "layer": "composite_reflectivity",
       "message": "RainViewer public composite radar API (Universal Blue reflectivity).",
-      "timestamp": "2026-09-15T02:30:00+00:00",
+      "timestamp": "2026-09-15T02:40:00+00:00",
       "tile_matrix": "WebMercator z6"
     }
   },
@@ -67,7 +67,7 @@
         153.9408723698483,
         -8.585708665824935
       ],
-      "radar_time": "2026-09-15T02:30:00+00:00",
+      "radar_time": "2026-09-15T02:40:00+00:00",
       "radar_layer": "composite_reflectivity",
       "radar_tile_matrix": "WebMercator z6",
       "radar_tiles": 20,
