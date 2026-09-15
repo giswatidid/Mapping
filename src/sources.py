@@ -672,6 +672,21 @@ def load_qld_mainland() -> tuple[gpd.GeoDataFrame, SourceState]:
     )
 
 
+def load_population_centres() -> tuple[gpd.GeoDataFrame, SourceState]:
+    return _load_arcgis_geojson_layer(
+        config.QLD_POPULATION_CENTRES_LAYER_URL,
+        out_fields="name,population,operational_status,upper_scale",
+    )
+
+
+def load_major_roads() -> tuple[gpd.GeoDataFrame, SourceState]:
+    return _load_arcgis_geojson_layer(
+        config.QLD_MAJOR_ROADS_LAYER_URL,
+        where="symbol_class IN ('Motorway','Highway')",
+        out_fields="road_name_full,symbol_class",
+    )
+
+
 def warning_identifier(row: Any, fallback_index: int) -> str:
     candidate_fields = (
         "warning_id",
