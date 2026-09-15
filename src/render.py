@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import textwrap
 
 import geopandas as gpd
+from shapely.geometry import box
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
@@ -158,61 +159,248 @@ def _draw_lgas(
         )
 
 
-def _draw_warning(ax: Any, warnings: gpd.GeoDataFrame) -> None:
+def _draw_warning(
+    ax: Any,
+    warnings: gpd.GeoDataFrame,
+    *,
+    radar_background: bool = False,
+) -> None:
+    """Draw warnings so they remain visible without obscuring outages/radar."""
+    if warnings is None or warnings.empty:
+        return
+
+    # Warning fill stays underneath outage areas. On radar maps it is made very
+    # faint so reflectivity remains readable; the strong amber outline carries
+    # the warning geometry.
     warnings.plot(
         ax=ax,
         facecolor="#ffd43b",
-        edgecolor="#b23a00",
-        linewidth=2.2,
-        alpha=0.30,
-        zorder=5,
+        edgecolor="none",
+        alpha=0.05 if radar_background else 0.16,
+        zorder=4,
+    )
+    warnings.boundary.plot(
+        ax=ax,
+        color="#b45309",
+        linewidth=2.4 if radar_background else 2.2,
+        alpha=0.98,
+        linestyle="--" if radar_background else "-",
+        zorder=9,
     )
 
 
-def _outage_size(row: Any) -> float:
-    for field in ("affected_customers", "customers", "customer_count"):
-        value = row.get(field) if hasattr(row, "get") else None
-        try:
-            customers = max(0.0, float(value))
-            return min(220.0, 24.0 + customers ** 0.5 * 4.0)
-        except Exception:
+_CUSTOMER_FIELDS = (
+    "affected_customers",
+    "customers_affected",
+    "customers",
+    "customer_count",
+    "cust_affected",
+    "n_customers",
+)
+
+
+def _affected_customers(row: Any) -> int | None:
+    if not hasattr(row, "get"):
+        return None
+
+    known = row.get("affected_customers_known")
+    if known is False or str(known).strip().lower() in {"false", "no", "0"}:
+        return None
+
+    for field in _CUSTOMER_FIELDS:
+        value = row.get(field)
+        if value is None or value == "":
             continue
-    return 34.0
+        try:
+            number = int(round(float(value)))
+            if number >= 0:
+                return number
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
-def _draw_outages(ax: Any, outages: gpd.GeoDataFrame, bounds: tuple[float, float, float, float]) -> int:
-    visible = clip_to_bounds(outages, bounds)
-    if visible.empty:
+def _outage_size(row: Any) -> float:
+    customers = _affected_customers(row)
+    if customers is None:
+        return 34.0
+    return min(220.0, 24.0 + customers ** 0.5 * 4.0)
+
+
+def _label_limit(bounds: tuple[float, float, float, float]) -> int:
+    minx, miny, maxx, maxy = bounds
+    span = max(maxx - minx, maxy - miny)
+    if span >= 10:
+        return 12
+    if span >= 5:
+        return 18
+    return 30
+
+
+def _draw_customer_labels(
+    ax: Any,
+    candidates: list[tuple[int, Any]],
+    bounds: tuple[float, float, float, float],
+) -> int:
+    """Draw highest-impact customer labels while suppressing collisions."""
+    if not candidates:
         return 0
 
-    xs: list[float] = []
-    ys: list[float] = []
-    sizes: list[float] = []
     minx, miny, maxx, maxy = bounds
+    candidates = sorted(candidates, key=lambda item: item[0], reverse=True)
+    limit = _label_limit(bounds)
 
-    for _, row in visible.iterrows():
+    # Ensure transforms and text metrics are available before collision checks.
+    ax.figure.canvas.draw()
+    renderer = ax.figure.canvas.get_renderer()
+    accepted: list[Any] = []
+    shown = 0
+
+    for customers, point in candidates:
+        if shown >= limit:
+            break
+        if not (minx <= point.x <= maxx and miny <= point.y <= maxy):
+            continue
+
+        text = ax.text(
+            point.x,
+            point.y,
+            f"{customers:,}",
+            ha="center",
+            va="center",
+            fontsize=7.0,
+            fontweight="bold",
+            color="#7f1d1d",
+            zorder=12,
+            clip_on=True,
+            bbox={
+                "boxstyle": "round,pad=0.18",
+                "facecolor": "white",
+                "edgecolor": "#991b1b",
+                "linewidth": 0.7,
+                "alpha": 0.90,
+            },
+        )
+        bbox = text.get_window_extent(renderer=renderer).expanded(1.08, 1.18)
+
+        if any(bbox.overlaps(existing) for existing in accepted):
+            text.remove()
+            continue
+
+        accepted.append(bbox)
+        shown += 1
+
+    return shown
+
+
+def _draw_outages(
+    ax: Any,
+    outages: gpd.GeoDataFrame,
+    bounds: tuple[float, float, float, float],
+    *,
+    radar_background: bool = False,
+) -> dict[str, int]:
+    """Draw true outage geometry and customer labels.
+
+    Draw order is deliberate:
+      radar/base -> LGAs -> warning fill -> outage areas -> warning outline ->
+      customer labels.
+    """
+    visible = clip_to_bounds(outages, bounds)
+    if visible.empty:
+        return {
+            "outages_in_extent": 0,
+            "outage_polygons": 0,
+            "outage_points": 0,
+            "customers_affected": 0,
+            "customers_known_outages": 0,
+            "customer_labels_shown": 0,
+        }
+
+    minx, miny, maxx, maxy = bounds
+    polygon_indices: list[Any] = []
+    point_rows: list[tuple[float, float, float]] = []
+    label_candidates: list[tuple[int, Any]] = []
+    feature_count = 0
+    polygon_count = 0
+    point_count = 0
+    customers_total = 0
+    customers_known = 0
+
+    for index, row in visible.iterrows():
         geom = row.geometry
         if geom is None or geom.is_empty:
             continue
-        p = geom if geom.geom_type == "Point" else geom.centroid
-        if not (minx <= p.x <= maxx and miny <= p.y <= maxy):
-            continue
-        xs.append(p.x)
-        ys.append(p.y)
-        sizes.append(_outage_size(row))
 
-    if xs:
+        if not geom.intersects(box(minx, miny, maxx, maxy)):
+            continue
+
+        feature_count += 1
+        geom_type = geom.geom_type
+
+        if geom_type in {"Polygon", "MultiPolygon"}:
+            polygon_indices.append(index)
+            polygon_count += 1
+            label_point = geom.representative_point()
+        elif geom_type == "Point":
+            point_rows.append((geom.x, geom.y, _outage_size(row)))
+            point_count += 1
+            label_point = geom
+        else:
+            point = geom.representative_point()
+            point_rows.append((point.x, point.y, _outage_size(row)))
+            point_count += 1
+            label_point = point
+
+        customers = _affected_customers(row)
+        if customers is not None:
+            customers_total += customers
+            customers_known += 1
+            label_candidates.append((customers, label_point))
+
+    if polygon_indices:
+        polygon_gdf = visible.loc[polygon_indices]
+        polygon_gdf.plot(
+            ax=ax,
+            facecolor="#ef4444",
+            edgecolor="#991b1b",
+            linewidth=1.55,
+            alpha=0.24 if radar_background else 0.30,
+            zorder=6,
+        )
+        polygon_gdf.boundary.plot(
+            ax=ax,
+            color="#7f1d1d",
+            linewidth=1.45,
+            alpha=0.96,
+            zorder=7,
+        )
+
+    if point_rows:
+        xs = [item[0] for item in point_rows]
+        ys = [item[1] for item in point_rows]
+        sizes = [item[2] for item in point_rows]
         ax.scatter(
             xs,
             ys,
             s=sizes,
             c="#dc2626",
             edgecolors="white",
-            linewidths=0.7,
-            alpha=0.9,
+            linewidths=0.8,
+            alpha=0.95,
             zorder=8,
         )
-    return len(xs)
+
+    labels_shown = _draw_customer_labels(ax, label_candidates, bounds)
+
+    return {
+        "outages_in_extent": feature_count,
+        "outage_polygons": polygon_count,
+        "outage_points": point_count,
+        "customers_affected": customers_total,
+        "customers_known_outages": customers_known,
+        "customer_labels_shown": labels_shown,
+    }
 
 
 def _set_extent(ax: Any, bounds: tuple[float, float, float, float]) -> None:
@@ -287,32 +475,52 @@ def render_outage_map(
     if has_warning:
         _draw_warning(ax, warning_gdf)
 
-    outage_count = _draw_outages(ax, outages, bounds)
+    outage_info = _draw_outages(ax, outages, bounds)
     _set_extent(ax, bounds)
 
     _figure_title(fig, title)
     legend = [
         Line2D([0], [0], color="#5f6b73", lw=1.1, label="Local government area boundary"),
-        Line2D([0], [0], marker="o", color="w", markerfacecolor="#dc2626", markeredgecolor="white", markersize=9, label="Current unplanned power outage"),
+        Patch(
+            facecolor="#ef4444",
+            edgecolor="#991b1b",
+            alpha=0.30,
+            label="Current unplanned outage area (label = customers affected)",
+        ),
     ]
+    if outage_info["outage_points"]:
+        legend.append(
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="w",
+                markerfacecolor="#dc2626",
+                markeredgecolor="white",
+                markersize=8,
+                label="Outage location where no area polygon is available",
+            )
+        )
     if has_warning:
         legend.insert(
             0,
             Patch(
                 facecolor="#ffd43b",
-                edgecolor="#b23a00",
-                alpha=0.35,
+                edgecolor="#b45309",
+                alpha=0.25,
                 label="BOM severe thunderstorm warning area",
             ),
         )
-    ax.legend(handles=legend, loc="lower left", framealpha=0.95, fontsize=9)
+    ax.legend(handles=legend, loc="lower left", framealpha=0.95, fontsize=8.5)
 
     footer = [f"Generated {_display_time(generated_at)}"]
     if warning_time:
         footer.append(f"Warning issued {_display_time(warning_time)}")
     if not has_warning:
         footer.append("No active Queensland severe thunderstorm warnings")
-    footer.append(f"{outage_count} unplanned outage locations shown in map extent")
+    footer.append(f"{outage_info['outages_in_extent']} unplanned outages shown")
+    if outage_info["customers_known_outages"]:
+        footer.append(f"{outage_info['customers_affected']:,} customers affected")
     _footer(ax, footer)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -320,11 +528,12 @@ def render_outage_map(
     fig.savefig(output_path, bbox_inches="tight", pad_inches=0.12)
     plt.close(fig)
 
-    return {"bounds": list(bounds), "outages_in_extent": outage_count}
+    return {"bounds": list(bounds), **outage_info}
 
 
 def render_radar_map(
     warning_gdf: gpd.GeoDataFrame | None,
+    outages: gpd.GeoDataFrame,
     lgas: gpd.GeoDataFrame,
     output_path: Path,
     title: str,
@@ -358,37 +567,57 @@ def render_radar_map(
             color="white",
             linewidth=0.7,
             alpha=0.82,
-            zorder=4,
+            zorder=3,
         )
 
     if has_warning:
-        warning_gdf.plot(
-            ax=ax,
-            facecolor="#ffd43b",
-            edgecolor="#b42318",
-            linewidth=2.6,
-            alpha=0.13,
-            zorder=7,
-        )
-        warning_gdf.boundary.plot(ax=ax, color="#b42318", linewidth=2.6, zorder=8)
+        _draw_warning(ax, warning_gdf, radar_background=True)
+
+    outage_info = _draw_outages(
+        ax,
+        outages,
+        bounds,
+        radar_background=True,
+    )
 
     _set_extent(ax, bounds)
     _figure_title(fig, title)
 
     context_legend = [
         Line2D([0], [0], color="white", lw=1.4, label="Local government area boundary"),
+        Patch(
+            facecolor="#ef4444",
+            edgecolor="#991b1b",
+            alpha=0.26,
+            label="Current unplanned outage area (label = customers affected)",
+        ),
     ]
+    if outage_info["outage_points"]:
+        context_legend.append(
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="w",
+                markerfacecolor="#dc2626",
+                markeredgecolor="white",
+                markersize=7,
+                label="Outage location",
+            )
+        )
     if has_warning:
         context_legend.insert(
             0,
-            Patch(
-                facecolor="#ffd43b",
-                edgecolor="#b42318",
-                alpha=0.28,
-                label="BOM severe thunderstorm warning area",
+            Line2D(
+                [0],
+                [0],
+                color="#b45309",
+                lw=2.4,
+                linestyle="--",
+                label="BOM severe thunderstorm warning boundary",
             ),
         )
-    ax.legend(handles=context_legend, loc="lower left", framealpha=0.92, fontsize=8)
+    ax.legend(handles=context_legend, loc="lower left", framealpha=0.92, fontsize=7.8)
 
     if radar.legend_kind == "rain_rate":
         legend_spec = RAIN_RATE_LEGEND
@@ -420,7 +649,10 @@ def render_radar_map(
         f"Generated {_display_time(generated_at)}",
         f"Radar {_display_time(radar.timestamp)}" if radar.timestamp else "Latest radar mosaic",
         "Weather radar: RainViewer" if radar.provider == "rainviewer" else "Weather radar: Bureau of Meteorology",
+        f"{outage_info['outages_in_extent']} unplanned outages",
     ]
+    if outage_info["customers_known_outages"]:
+        footer.append(f"{outage_info['customers_affected']:,} customers affected")
     if warning_time:
         footer.append(f"Warning issued {_display_time(warning_time)}")
     if not has_warning:
@@ -440,4 +672,5 @@ def render_radar_map(
         "radar_tiles": radar.tile_count,
         "radar_provider": radar.provider,
         "radar_legend": radar.legend_kind,
+        **outage_info,
     }
