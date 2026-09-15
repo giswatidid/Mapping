@@ -1,47 +1,47 @@
 {
-  "generated_at": "2026-09-15T12:45:51+10:00",
+  "generated_at": "2026-09-15T12:48:14+10:00",
   "mode": "live",
   "status": "no_active_warnings",
   "sources": {
     "warnings": {
       "status": "no_active_warnings",
       "message": "No active Queensland severe thunderstorm CAP warnings remained after validity filtering.",
-      "timestamp": "2026-09-15T02:45:59Z",
+      "timestamp": "2026-09-15T02:48:28Z",
       "url": "https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/rss.xml",
       "count": 0
     },
     "outages": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-15T02:45:59Z",
+      "timestamp": "2026-09-15T02:48:28Z",
       "url": "https://raw.githubusercontent.com/gowlettluke/qldpoweroutages/main/data/current_outages.geojson",
-      "count": 5
+      "count": 3
     },
     "lgas": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-15T02:46:04Z",
+      "timestamp": "2026-09-15T02:48:33Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdminBoundariesFramework/FeatureServer/11/query?where=1%3D1&outFields=%2A&returnGeometry=true&outSR=4326&f=geojson",
       "count": 78
     },
     "coastline": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-15T02:46:09Z",
+      "timestamp": "2026-09-15T02:48:40Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/55/query?where=1%3D1&outFields=feature_type&returnGeometry=true&outSR=4326&f=geojson",
       "count": 4721
     },
     "state_border": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-15T02:46:10Z",
+      "timestamp": "2026-09-15T02:48:41Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdminBoundariesFramework/FeatureServer/201/query?where=1%3D1&outFields=feature_type&returnGeometry=true&outSR=4326&f=geojson",
       "count": 4
     },
     "mainland": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-15T02:46:14Z",
+      "timestamp": "2026-09-15T02:48:45Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Location/GeographicalFeatures/FeatureServer/90/query?where=1%3D1&outFields=feature_type%2Cname&returnGeometry=true&outSR=4326&f=geojson",
       "count": 2
     },
@@ -64,17 +64,17 @@
       "title": "No current Queensland severe thunderstorm warnings — Statewide Power Outages",
       "filename": "warning-outages-statewide.png",
       "bounds": [
-        137.60571490017549,
-        -29.495280437174394,
-        153.94082110022052,
-        -16.22267406246271
+        137.5560278624979,
+        -29.678258512171492,
+        155.9779896450013,
+        -8.720572987581699
       ],
-      "outages_in_extent": 5,
-      "outage_polygons": 5,
+      "outages_in_extent": 3,
+      "outage_polygons": 3,
       "outage_points": 0,
-      "customers_affected": 465,
-      "customers_known_outages": 5,
-      "customer_labels_shown": 5
+      "customers_affected": 409,
+      "customers_known_outages": 3,
+      "customer_labels_shown": 3
     },
     {
       "kind": "radar",
@@ -83,23 +83,23 @@
       "title": "No current Queensland severe thunderstorm warnings — Statewide Rain Radar",
       "filename": "warning-radar-statewide.png",
       "bounds": [
-        137.60571490017549,
-        -29.495280437174394,
-        153.94082110022052,
-        -16.22267406246271
+        137.5560278624979,
+        -29.678258512171492,
+        155.9779896450013,
+        -8.720572987581699
       ],
       "radar_time": "2026-09-15T02:40:00+00:00",
       "radar_layer": "composite_reflectivity",
       "radar_tile_matrix": "WebMercator z6",
-      "radar_tiles": 16,
+      "radar_tiles": 20,
       "radar_provider": "rainviewer",
       "radar_legend": "rainviewer_reflectivity",
-      "outages_in_extent": 5,
-      "outage_polygons": 5,
+      "outages_in_extent": 3,
+      "outage_polygons": 3,
       "outage_points": 0,
-      "customers_affected": 465,
-      "customers_known_outages": 5,
-      "customer_labels_shown": 5
+      "customers_affected": 409,
+      "customers_known_outages": 3,
+      "customer_labels_shown": 3
     }
   ],
   "errors": [],
