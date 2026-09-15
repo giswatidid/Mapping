@@ -38,9 +38,27 @@ def statewide_bounds(
     several coastal LGAs extend offshore and otherwise make the state look wider
     than its actual land/coastline outline.
     """
-    # Coastline and interstate border are separate line datasets, so their
-    # extents must be combined. Using either one by itself can truncate Cape
-    # York or the southern/western state border.
+    # The FoundationData Queensland Border layer contains the full state
+    # outline and is the preferred statewide extent. Older/interstate-only
+    # border layers do not reach Cape York, so only trust a border whose span
+    # is clearly statewide.
+    if state_border is not None and not state_border.empty:
+        try:
+            minx, miny, maxx, maxy = [float(v) for v in state_border.total_bounds]
+            if (maxy - miny) >= 15.0 and (maxx - minx) >= 10.0:
+                dx = maxx - minx
+                dy = maxy - miny
+                return (
+                    minx - dx * fraction,
+                    miny - dy * fraction,
+                    maxx + dx * fraction,
+                    maxy + dy * fraction,
+                )
+        except Exception:
+            pass
+
+    # Fallback for installations still configured with separate coastline and
+    # interstate-border layers.
     outline_bounds: list[tuple[float, float, float, float]] = []
     for candidate in (coastline, state_border):
         if candidate is None or candidate.empty:
