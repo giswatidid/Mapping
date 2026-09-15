@@ -9,7 +9,7 @@ import geopandas as gpd
 from shapely.geometry import Polygon
 
 from . import config
-from .render import render_outage_map, render_radar_map
+from .render import render_outage_map, render_radar_map, statewide_bounds
 from .sources import (
     SourceState,
     load_lga_boundaries,
@@ -168,21 +168,20 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
         "errors": [],
     }
 
-    if warnings.empty:
-        if warning_state.status == "no_active_warnings":
-            manifest["status"] = "no_active_warnings"
-        elif warning_state.status == "source_unconfigured":
-            manifest["status"] = "source_unconfigured"
-        else:
-            manifest["status"] = "source_error"
+    if warnings.empty and warning_state.status != "no_active_warnings":
+        manifest["status"] = (
+            "source_unconfigured"
+            if warning_state.status == "source_unconfigured"
+            else "source_error"
+        )
         write_manifest(manifest)
-        return 0 if warning_state.status in {"no_active_warnings", "source_unconfigured"} else 1
-
-    warning_meta = build_warning_metadata(warnings)
-    manifest["warnings"] = warning_meta
+        return 0 if warning_state.status == "source_unconfigured" else 1
 
     outages, outage_state = load_power_outages()
     lgas, lga_state = load_lga_boundaries()
+
+    warning_meta = build_warning_metadata(warnings) if not warnings.empty else []
+    manifest["warnings"] = warning_meta
     manifest["sources"]["outages"] = outage_state.as_dict()
     manifest["sources"]["lgas"] = lga_state.as_dict()
 
@@ -244,6 +243,73 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
     else:
         manifest["sources"]["radar"]["status"] = "source_unconfigured"
         manifest["sources"]["radar"]["message"] = "No radar source is configured."
+
+    if warnings.empty and warning_state.status == "no_active_warnings":
+        # Quiet-day fallback: always publish useful statewide context maps.
+        # LGA labels are suppressed at this scale, but boundaries remain visible.
+        bounds = statewide_bounds(lgas)
+        title_prefix = "No current Queensland severe thunderstorm warnings"
+
+        outage_filename = "warning-outages-statewide.png"
+        outage_info = render_outage_map(
+            None,
+            outages,
+            lgas,
+            config.OUTPUT_DIR / outage_filename,
+            title=f"{title_prefix} — Statewide Power Outages",
+            generated_at=generated_at,
+            bounds_override=bounds,
+            show_lga_labels=False,
+        )
+        manifest["maps"].append(
+            {
+                "kind": "outages",
+                "scope": "statewide",
+                "warning_id": None,
+                "title": f"{title_prefix} — Statewide Power Outages",
+                "filename": outage_filename,
+                **outage_info,
+            }
+        )
+
+        if radar_configured:
+            radar_filename = "warning-radar-statewide.png"
+            try:
+                radar_info = render_radar_map(
+                    None,
+                    lgas,
+                    config.OUTPUT_DIR / radar_filename,
+                    title=f"{title_prefix} — Statewide Rain Radar",
+                    generated_at=generated_at,
+                    bounds_override=bounds,
+                )
+                manifest["maps"].append(
+                    {
+                        "kind": "radar",
+                        "scope": "statewide",
+                        "warning_id": None,
+                        "title": f"{title_prefix} — Statewide Rain Radar",
+                        "filename": radar_filename,
+                        **radar_info,
+                    }
+                )
+                manifest["sources"]["radar"]["status"] = "ok"
+                manifest["sources"]["radar"]["timestamp"] = radar_info.get("radar_time")
+                manifest["sources"]["radar"]["tile_matrix"] = radar_info.get("radar_tile_matrix")
+                manifest["sources"]["radar"]["provider"] = radar_info.get("radar_provider")
+            except Exception as exc:
+                radar_error = f"{type(exc).__name__}: {exc}"
+                manifest["sources"]["radar"]["status"] = "error"
+                manifest["sources"]["radar"]["message"] = radar_error
+                manifest["errors"].append(f"Radar source: {radar_error}")
+
+        manifest["status"] = "no_active_warnings"
+        manifest["message"] = (
+            "No active Queensland severe thunderstorm warnings. "
+            "Statewide context maps are shown instead."
+        )
+        write_manifest(manifest)
+        return 0
 
     radar_error: str | None = None
 
