@@ -1,47 +1,47 @@
 {
-  "generated_at": "2026-09-15T12:48:14+10:00",
+  "generated_at": "2026-09-15T12:50:23+10:00",
   "mode": "live",
   "status": "no_active_warnings",
   "sources": {
     "warnings": {
       "status": "no_active_warnings",
       "message": "No active Queensland severe thunderstorm CAP warnings remained after validity filtering.",
-      "timestamp": "2026-09-15T02:48:28Z",
+      "timestamp": "2026-09-15T02:50:23Z",
       "url": "https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/rss.xml",
       "count": 0
     },
     "outages": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-15T02:48:28Z",
+      "timestamp": "2026-09-15T02:50:23Z",
       "url": "https://raw.githubusercontent.com/gowlettluke/qldpoweroutages/main/data/current_outages.geojson",
       "count": 3
     },
     "lgas": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-15T02:48:33Z",
+      "timestamp": "2026-09-15T02:50:29Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdminBoundariesFramework/FeatureServer/11/query?where=1%3D1&outFields=%2A&returnGeometry=true&outSR=4326&f=geojson",
       "count": 78
     },
     "coastline": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-15T02:48:40Z",
+      "timestamp": "2026-09-15T02:50:34Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/55/query?where=1%3D1&outFields=feature_type&returnGeometry=true&outSR=4326&f=geojson",
       "count": 4721
     },
     "state_border": {
-      "status": "ok",
-      "message": null,
-      "timestamp": "2026-09-15T02:48:41Z",
-      "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdminBoundariesFramework/FeatureServer/201/query?where=1%3D1&outFields=feature_type&returnGeometry=true&outSR=4326&f=geojson",
-      "count": 4
+      "status": "error",
+      "message": "ValueError: Expected a GeoJSON FeatureCollection or Feature",
+      "timestamp": "2026-09-15T02:50:35Z",
+      "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/5/query",
+      "count": null
     },
     "mainland": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-15T02:48:45Z",
+      "timestamp": "2026-09-15T02:50:39Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Location/GeographicalFeatures/FeatureServer/90/query?where=1%3D1&outFields=feature_type%2Cname&returnGeometry=true&outSR=4326&f=geojson",
       "count": 2
     },
@@ -51,7 +51,7 @@
       "url": "https://api.rainviewer.com/public/weather-maps.json",
       "layer": "composite_reflectivity",
       "message": "RainViewer public composite radar API (Universal Blue reflectivity).",
-      "timestamp": "2026-09-15T02:40:00+00:00",
+      "timestamp": "2026-09-15T02:50:00+00:00",
       "tile_matrix": "WebMercator z6"
     }
   },
@@ -65,9 +65,9 @@
       "filename": "warning-outages-statewide.png",
       "bounds": [
         137.5560278624979,
-        -29.678258512171492,
+        -28.640409624421842,
         155.9779896450013,
-        -8.720572987581699
+        -8.745886375087787
       ],
       "outages_in_extent": 3,
       "outage_polygons": 3,
@@ -84,11 +84,11 @@
       "filename": "warning-radar-statewide.png",
       "bounds": [
         137.5560278624979,
-        -29.678258512171492,
+        -28.640409624421842,
         155.9779896450013,
-        -8.720572987581699
+        -8.745886375087787
       ],
-      "radar_time": "2026-09-15T02:40:00+00:00",
+      "radar_time": "2026-09-15T02:50:00+00:00",
       "radar_layer": "composite_reflectivity",
       "radar_tile_matrix": "WebMercator z6",
       "radar_tiles": 20,
