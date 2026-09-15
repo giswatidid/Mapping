@@ -192,39 +192,40 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
 
     scopes: list[tuple[str, str, gpd.GeoDataFrame, str | None, str | None]] = []
 
-    if len(warnings) > 1:
-        scopes.append(
-            (
-                "combined",
-                "All current Queensland severe thunderstorm warnings",
-                warnings,
-                None,
-                None,
-            )
-        )
-    else:
-        scopes.append(
-            (
-                "combined",
-                warning_meta[0]["title"],
-                warnings,
-                warning_meta[0]["issued"],
-                warning_meta[0]["id"],
-            )
-        )
-
-    if len(warnings) > 1:
-        for idx in range(len(warnings)):
-            meta = warning_meta[idx]
+    if not warnings.empty:
+        if len(warnings) > 1:
             scopes.append(
                 (
-                    meta["id"],
-                    meta["title"],
-                    warnings.iloc[[idx]].copy(),
-                    meta["issued"],
-                    meta["id"],
+                    "combined",
+                    "All current Queensland severe thunderstorm warnings",
+                    warnings,
+                    None,
+                    None,
                 )
             )
+        else:
+            scopes.append(
+                (
+                    "combined",
+                    warning_meta[0]["title"],
+                    warnings,
+                    warning_meta[0]["issued"],
+                    warning_meta[0]["id"],
+                )
+            )
+
+        if len(warnings) > 1:
+            for idx in range(len(warnings)):
+                meta = warning_meta[idx]
+                scopes.append(
+                    (
+                        meta["id"],
+                        meta["title"],
+                        warnings.iloc[[idx]].copy(),
+                        meta["issued"],
+                        meta["id"],
+                    )
+                )
 
     rainviewer_configured = bool(config.RAINVIEWER_ENABLED and config.RAINVIEWER_MANIFEST_URL)
     wms_configured = bool(config.BOM_RADAR_WMS_URL and config.BOM_RADAR_WMS_LAYER)
