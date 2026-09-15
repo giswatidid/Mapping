@@ -177,12 +177,6 @@ def _draw_lgas(
     if not field:
         return
 
-    # A combined warning overview can span hundreds of kilometres. Keep the
-    # boundaries for context, but leave detailed LGA names to the individual
-    # warning maps where they remain readable.
-    if focus_gdf is not None and len(focus_gdf) > 1:
-        return
-
     label_rows = visible
     focus_geometry = None
     if focus_gdf is not None and not focus_gdf.empty:
@@ -208,13 +202,6 @@ def _draw_lgas(
         # saved PNG beyond the actual map.
         if not (minx <= point.x <= maxx and miny <= point.y <= maxy):
             continue
-        if focus_geometry is not None:
-            try:
-                if not focus_geometry.covers(point):
-                    continue
-            except Exception:
-                pass
-
         text = str(row.get(field) or "").strip()
         if not text:
             continue
@@ -305,6 +292,7 @@ def _draw_warning(
     warnings: gpd.GeoDataFrame,
     *,
     radar_background: bool = False,
+    outline_zorder: float = 9.0,
 ) -> None:
     """Draw warnings so they remain visible without obscuring outages/radar."""
     if warnings is None or warnings.empty:
@@ -326,7 +314,7 @@ def _draw_warning(
         linewidth=2.4 if radar_background else 2.2,
         alpha=0.98,
         linestyle="--" if radar_background else "-",
-        zorder=9,
+        zorder=outline_zorder,
     )
 
 
@@ -603,7 +591,7 @@ def _draw_road_labels(
             color="#7f1d1d" if priority == 0 else "#7c4a03",
             ha="center",
             va="center",
-            zorder=12,
+            zorder=11,
             clip_on=True,
             bbox={
                 "boxstyle": "round,pad=0.18",
@@ -873,6 +861,151 @@ def render_road_closure_map(
     return {"bounds": list(bounds), **road_info}
 
 
+def render_infrastructure_map(
+    warning_gdf: gpd.GeoDataFrame | None,
+    outages: gpd.GeoDataFrame,
+    closures: gpd.GeoDataFrame,
+    lgas: gpd.GeoDataFrame,
+    output_path: Path,
+    title: str,
+    generated_at: str,
+    warning_time: str | None = None,
+    bounds_override: tuple[float, float, float, float] | None = None,
+    coastline: gpd.GeoDataFrame | None = None,
+    state_border: gpd.GeoDataFrame | None = None,
+    mainland: gpd.GeoDataFrame | None = None,
+    show_restrictions: bool = True,
+) -> dict[str, Any]:
+    """Render the operational infrastructure-impact picture.
+
+    Layer order is intentional:
+      base -> LGA boundaries/labels -> warning -> outage areas ->
+      road closures/restrictions -> road labels -> outage-customer labels.
+
+    LGA labels are context only and are deliberately allowed to be covered by
+    warning and infrastructure information.
+    """
+    has_warning = warning_gdf is not None and not warning_gdf.empty
+    bounds = (
+        bounds_override
+        if bounds_override is not None
+        else (
+            padded_bounds(warning_gdf)
+            if has_warning
+            else statewide_bounds(lgas, state_border=state_border, coastline=coastline)
+        )
+    )
+
+    fig, ax = plt.subplots(figsize=(12, 9), dpi=150)
+    ax.set_facecolor("#f8fafc")
+
+    _draw_lgas(
+        ax,
+        lgas,
+        bounds,
+        focus_gdf=warning_gdf if has_warning else None,
+        show_labels=has_warning,
+        land_mask=mainland if not has_warning else None,
+    )
+    _draw_qld_outline(ax, coastline, state_border, bounds)
+
+    if has_warning:
+        # The warning is context on this product; all infrastructure symbols
+        # sit above both its fill and outline.
+        _draw_warning(ax, warning_gdf, outline_zorder=5.0)
+
+    # Draw roads first, then outages. Outage customer labels have the highest
+    # label priority and can cover road labels where unavoidable.
+    road_info = _draw_road_closures(
+        ax,
+        closures,
+        bounds,
+        qld_mask=lgas,
+        show_restrictions=show_restrictions,
+    )
+    outage_info = _draw_outages(ax, outages, bounds)
+
+    _set_extent(ax, bounds)
+    _figure_title(fig, title)
+
+    legend = [
+        Line2D([0], [0], color="#344054", lw=1.6, label="Queensland coastline / state border"),
+        Line2D([0], [0], color="#7a8790", lw=0.8, label="Local government area boundary"),
+        Patch(
+            facecolor="#ef4444",
+            edgecolor="#991b1b",
+            alpha=0.30,
+            label="Unplanned power outage area (label = customers affected)",
+        ),
+        Line2D([0], [0], color="#dc2626", lw=2.7, label="Road closed / impassable"),
+    ]
+    if show_restrictions:
+        legend.append(
+            Line2D(
+                [0],
+                [0],
+                color="#f59e0b",
+                lw=2.0,
+                label="Road restricted / conditional access",
+            )
+        )
+    if outage_info["outage_points"]:
+        legend.append(
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="w",
+                markerfacecolor="#dc2626",
+                markeredgecolor="white",
+                markersize=8,
+                label="Outage location where no area polygon is available",
+            )
+        )
+    if has_warning:
+        legend.insert(
+            0,
+            Patch(
+                facecolor="#ffd43b",
+                edgecolor="#b45309",
+                alpha=0.25,
+                label="BOM severe thunderstorm warning area",
+            ),
+        )
+    _place_legend(fig, legend, fontsize=7.5)
+
+    footer = [
+        f"Generated {_display_time(generated_at)}",
+        "Road conditions: QLD Traffic",
+    ]
+    if warning_time:
+        footer.append(f"Warning issued {_display_time(warning_time)}")
+    if not has_warning:
+        footer.append("No active Queensland severe thunderstorm warnings")
+    footer.append(f"{outage_info['outages_in_extent']} power outages")
+    if outage_info["customers_known_outages"]:
+        footer.append(f"{outage_info['customers_affected']:,} customers affected")
+    footer.append(f"{road_info['roads_closed']} roads closed")
+    if show_restrictions:
+        footer.append(f"{road_info['roads_restricted']} restricted / conditional")
+    elif road_info["roads_restricted"]:
+        footer.append(
+            f"{road_info['roads_restricted']} restrictions omitted at statewide scale"
+        )
+    _footer(ax, footer)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout(rect=(0.03, 0.13, 0.97, 0.90))
+    fig.savefig(output_path, bbox_inches="tight", pad_inches=0.12)
+    plt.close(fig)
+
+    return {
+        "bounds": list(bounds),
+        **outage_info,
+        **road_info,
+    }
+
+
 def _set_extent(ax: Any, bounds: tuple[float, float, float, float]) -> None:
     minx, miny, maxx, maxy = bounds
     ax.set_xlim(minx, maxx)
@@ -1014,7 +1147,6 @@ def render_outage_map(
 
 def render_radar_map(
     warning_gdf: gpd.GeoDataFrame | None,
-    outages: gpd.GeoDataFrame,
     lgas: gpd.GeoDataFrame,
     output_path: Path,
     title: str,
@@ -1025,6 +1157,12 @@ def render_radar_map(
     state_border: gpd.GeoDataFrame | None = None,
     mainland: gpd.GeoDataFrame | None = None,
 ) -> dict[str, Any]:
+    """Render warning geometry with radar overlaid.
+
+    LGA boundaries and names are deliberately beneath both the warning and
+    radar layers. The warning outline remains on top so its operational extent
+    is still unambiguous.
+    """
     has_warning = warning_gdf is not None and not warning_gdf.empty
     bounds = (
         bounds_override
@@ -1040,67 +1178,47 @@ def render_radar_map(
     fig, ax = plt.subplots(figsize=(12, 9), dpi=150)
     ax.set_facecolor("#e8eef2")
     minx, miny, maxx, maxy = bounds
-    ax.imshow(
-        radar.image,
-        extent=(minx, maxx, miny, maxy),
-        origin="upper",
-        interpolation="bilinear",
-        zorder=1,
-    )
 
+    # Base context first. Warning-extent maps show LGA names; statewide quiet
+    # maps keep labels off to avoid clutter.
     _draw_lgas(
         ax,
         lgas,
         bounds,
-        focus_gdf=None,
-        show_labels=False,
+        focus_gdf=warning_gdf if has_warning else None,
+        show_labels=has_warning,
         land_mask=mainland if not has_warning else None,
-        radar_background=True,
+        radar_background=False,
     )
     _draw_qld_outline(
         ax,
         coastline,
         state_border,
         bounds,
-        radar_background=True,
+        radar_background=False,
     )
 
     if has_warning:
-        _draw_warning(ax, warning_gdf, radar_background=True)
+        _draw_warning(ax, warning_gdf, radar_background=True, outline_zorder=9.0)
 
-    outage_info = _draw_outages(
-        ax,
-        outages,
-        bounds,
-        radar_background=True,
+    # Radar is visually above the warning fill and all LGA context. RainViewer
+    # tiles are transparent away from echoes, so underlying context remains
+    # visible where there is no precipitation.
+    ax.imshow(
+        radar.image,
+        extent=(minx, maxx, miny, maxy),
+        origin="upper",
+        interpolation="bilinear",
+        zorder=6,
     )
 
     _set_extent(ax, bounds)
     _figure_title(fig, title)
 
     context_legend = [
-        Line2D([0], [0], color="#263238", lw=1.6, label="Queensland coastline / state border"),
-        Line2D([0], [0], color="#98a2b3", lw=0.9, label="Local government area boundary"),
-        Patch(
-            facecolor="#ef4444",
-            edgecolor="#991b1b",
-            alpha=0.26,
-            label="Current unplanned outage area (label = customers affected)",
-        ),
+        Line2D([0], [0], color="#344054", lw=1.6, label="Queensland coastline / state border"),
+        Line2D([0], [0], color="#7a8790", lw=0.8, label="Local government area boundary"),
     ]
-    if outage_info["outage_points"]:
-        context_legend.append(
-            Line2D(
-                [0],
-                [0],
-                marker="o",
-                color="w",
-                markerfacecolor="#dc2626",
-                markeredgecolor="white",
-                markersize=7,
-                label="Outage location",
-            )
-        )
     if has_warning:
         context_legend.insert(
             0,
@@ -1113,7 +1231,7 @@ def render_radar_map(
                 label="BOM severe thunderstorm warning boundary",
             ),
         )
-    _place_legend(fig, context_legend, fontsize=7.7)
+    _place_legend(fig, context_legend, fontsize=7.8)
 
     if radar.legend_kind == "rain_rate":
         legend_spec = RAIN_RATE_LEGEND
@@ -1145,10 +1263,7 @@ def render_radar_map(
         f"Generated {_display_time(generated_at)}",
         f"Radar {_display_time(radar.timestamp)}" if radar.timestamp else "Latest radar mosaic",
         "Weather radar: RainViewer" if radar.provider == "rainviewer" else "Weather radar: Bureau of Meteorology",
-        f"{outage_info['outages_in_extent']} unplanned outages",
     ]
-    if outage_info["customers_known_outages"]:
-        footer.append(f"{outage_info['customers_affected']:,} customers affected")
     if warning_time:
         footer.append(f"Warning issued {_display_time(warning_time)}")
     if not has_warning:
@@ -1168,5 +1283,5 @@ def render_radar_map(
         "radar_tiles": radar.tile_count,
         "radar_provider": radar.provider,
         "radar_legend": radar.legend_kind,
-        **outage_info,
     }
+
