@@ -41,6 +41,18 @@ QLD_MAINLAND_LAYER_URL = os.getenv(
     "Location/GeographicalFeatures/FeatureServer/90",
 )
 
+QLD_POPULATION_CENTRES_LAYER_URL = os.getenv(
+    "QLD_POPULATION_CENTRES_LAYER_URL",
+    "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/"
+    "Location/Places/FeatureServer/20",
+)
+
+QLD_MAJOR_ROADS_LAYER_URL = os.getenv(
+    "QLD_MAJOR_ROADS_LAYER_URL",
+    "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/"
+    "Basemaps/FoundationData/FeatureServer/23",
+)
+
 # Warning discovery. A registered spatial override can still be supplied later;
 # otherwise the official BOM CAP feed is used.
 BOM_WARNING_GEOJSON_URL = os.getenv("BOM_WARNING_GEOJSON_URL", "").strip()
