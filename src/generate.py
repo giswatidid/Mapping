@@ -18,6 +18,8 @@ from .sources import (
     load_qld_coastline,
     load_qld_mainland,
     load_qld_state_border,
+    load_population_centres,
+    load_major_roads,
     load_warning_geometries,
     warning_identifier,
     warning_time,
@@ -148,6 +150,8 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
             "coastline": None,
             "state_border": None,
             "mainland": None,
+            "population_centres": None,
+            "major_roads": None,
             "radar": {
                 "status": "not_checked",
                 "provider": (
@@ -191,6 +195,8 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
     coastline, coastline_state = load_qld_coastline()
     state_border, state_border_state = load_qld_state_border()
     mainland, mainland_state = load_qld_mainland()
+    population_centres, population_centres_state = load_population_centres()
+    major_roads, major_roads_state = load_major_roads()
 
     warning_meta = build_warning_metadata(warnings) if not warnings.empty else []
     manifest["warnings"] = warning_meta
@@ -200,6 +206,8 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
     manifest["sources"]["coastline"] = coastline_state.as_dict()
     manifest["sources"]["state_border"] = state_border_state.as_dict()
     manifest["sources"]["mainland"] = mainland_state.as_dict()
+    manifest["sources"]["population_centres"] = population_centres_state.as_dict()
+    manifest["sources"]["major_roads"] = major_roads_state.as_dict()
 
     if lga_state.status != "ok":
         manifest["errors"].append(f"LGA source: {lga_state.message}")
@@ -268,19 +276,21 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                     None,
                     lgas,
                     config.OUTPUT_DIR / radar_filename,
-                    title=f"{title_prefix} — Statewide Radar",
+                    title="Queensland Statewide Radar — No Active Severe Thunderstorm Warnings",
                     generated_at=generated_at,
                     bounds_override=bounds,
                     coastline=coastline,
                     state_border=state_border,
                     mainland=mainland,
+                    major_roads=major_roads,
+                    population_centres=population_centres,
                 )
                 manifest["maps"].append(
                     {
                         "kind": "radar",
                         "scope": "statewide",
                         "warning_id": None,
-                        "title": f"{title_prefix} — Statewide Radar",
+                        "title": "Queensland Statewide Radar — No Active Severe Thunderstorm Warnings",
                         "filename": radar_filename,
                         **radar_info,
                     }
@@ -302,12 +312,14 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
             road_closures,
             lgas,
             config.OUTPUT_DIR / infrastructure_filename,
-            title=f"{title_prefix} — Statewide Infrastructure Impacts",
+            title="Queensland Infrastructure Impacts — No Active Severe Thunderstorm Warnings",
             generated_at=generated_at,
             bounds_override=bounds,
             coastline=coastline,
             state_border=state_border,
             mainland=mainland,
+            major_roads=major_roads,
+            population_centres=population_centres,
             show_restrictions=False,
         )
         manifest["maps"].append(
@@ -315,7 +327,7 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                 "kind": "infrastructure",
                 "scope": "statewide",
                 "warning_id": None,
-                "title": f"{title_prefix} — Statewide Infrastructure Impacts",
+                "title": "Queensland Infrastructure Impacts — No Active Severe Thunderstorm Warnings",
                 "filename": infrastructure_filename,
                 **infrastructure_info,
             }
@@ -347,6 +359,8 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                     coastline=coastline,
                     state_border=state_border,
                     mainland=mainland,
+                    major_roads=major_roads,
+                    population_centres=population_centres,
                 )
                 manifest["maps"].append(
                     {
@@ -384,6 +398,8 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
             coastline=coastline,
             state_border=state_border,
             mainland=mainland,
+            major_roads=major_roads,
+            population_centres=population_centres,
             show_restrictions=True,
         )
         manifest["maps"].append(
