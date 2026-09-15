@@ -9,11 +9,12 @@ import geopandas as gpd
 from shapely.geometry import Polygon
 
 from . import config
-from .render import render_outage_map, render_radar_map, statewide_bounds
+from .render import render_outage_map, render_radar_map, render_road_closure_map, statewide_bounds
 from .sources import (
     SourceState,
     load_lga_boundaries,
     load_power_outages,
+    load_road_closures,
     load_qld_coastline,
     load_qld_mainland,
     load_qld_state_border,
@@ -142,6 +143,7 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
         "sources": {
             "warnings": warning_state.as_dict(),
             "outages": None,
+            "road_closures": None,
             "lgas": None,
             "coastline": None,
             "state_border": None,
@@ -184,6 +186,7 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
         return 0 if warning_state.status == "source_unconfigured" else 1
 
     outages, outage_state = load_power_outages()
+    road_closures, road_closure_state = load_road_closures()
     lgas, lga_state = load_lga_boundaries()
     coastline, coastline_state = load_qld_coastline()
     state_border, state_border_state = load_qld_state_border()
@@ -192,6 +195,7 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
     warning_meta = build_warning_metadata(warnings) if not warnings.empty else []
     manifest["warnings"] = warning_meta
     manifest["sources"]["outages"] = outage_state.as_dict()
+    manifest["sources"]["road_closures"] = road_closure_state.as_dict()
     manifest["sources"]["lgas"] = lga_state.as_dict()
     manifest["sources"]["coastline"] = coastline_state.as_dict()
     manifest["sources"]["state_border"] = state_border_state.as_dict()
@@ -201,6 +205,8 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
         manifest["errors"].append(f"LGA source: {lga_state.message}")
     if outage_state.status != "ok":
         manifest["errors"].append(f"Outage source: {outage_state.message}")
+    if road_closure_state.status != "ok":
+        manifest["errors"].append(f"Road closure source: {road_closure_state.message}")
 
     scopes: list[tuple[str, str, gpd.GeoDataFrame, str | None, str | None]] = []
 
@@ -292,6 +298,31 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
             }
         )
 
+        if road_closure_state.status == "ok":
+            roads_filename = "warning-roads-statewide.png"
+            roads_info = render_road_closure_map(
+                None,
+                road_closures,
+                lgas,
+                config.OUTPUT_DIR / roads_filename,
+                title=f"{title_prefix} — Statewide Road Closures & Restrictions",
+                generated_at=generated_at,
+                bounds_override=bounds,
+                coastline=coastline,
+                state_border=state_border,
+                mainland=mainland,
+            )
+            manifest["maps"].append(
+                {
+                    "kind": "roads",
+                    "scope": "statewide",
+                    "warning_id": None,
+                    "title": f"{title_prefix} — Statewide Road Closures & Restrictions",
+                    "filename": roads_filename,
+                    **roads_info,
+                }
+            )
+
         if radar_configured:
             radar_filename = "warning-radar-statewide.png"
             try:
@@ -362,6 +393,32 @@ def run(demo: bool = False, demo_count: int = 1) -> int:
                 **outage_info,
             }
         )
+
+        if road_closure_state.status == "ok":
+            roads_filename = f"warning-roads-{scope}.png"
+            roads_path = config.OUTPUT_DIR / roads_filename
+            roads_info = render_road_closure_map(
+                scope_gdf,
+                road_closures,
+                lgas,
+                roads_path,
+                title=f"{scope_title} — Road Closures & Restrictions",
+                generated_at=generated_at,
+                warning_time=issued,
+                coastline=coastline,
+                state_border=state_border,
+                mainland=mainland,
+            )
+            manifest["maps"].append(
+                {
+                    "kind": "roads",
+                    "scope": scope,
+                    "warning_id": warning_id,
+                    "title": f"{scope_title} — Road Closures & Restrictions",
+                    "filename": roads_filename,
+                    **roads_info,
+                }
+            )
 
         if radar_configured and radar_error is None:
             radar_filename = f"warning-radar-{scope}.png"
