@@ -7,7 +7,8 @@ Generate publication-ready maps from current Queensland Bureau of Meteorology se
 For every current Queensland severe thunderstorm warning:
 
 1. **Warning + unplanned power outages + LGA boundaries**
-2. **Warning + current rain radar**
+2. **Warning + current road closures/restrictions**
+3. **Warning + current rain radar**
 
 When more than one warning is active, the generator also produces a combined extent containing all current warning areas and separate maps for each warning.
 
@@ -41,6 +42,24 @@ That project normalises Energex, Ergon Energy and Queensland-relevant Essential 
 
 Queensland Government `AdminBoundariesFramework/FeatureServer/11` is queried directly in EPSG:4326.
 
+### Road closures and restrictions
+
+Current road conditions are read directly from the public QLD Traffic GeoJSON feed used by the isolation project:
+
+`https://data.qldtraffic.qld.gov.au/events_v2.geojson`
+
+The generator applies the same important operational safeguards used in `gowlettluke/qld_only_isolation`:
+
+- future events are excluded until their `duration.start`
+- expired events are excluded after `duration.end`
+- non-published events are excluded
+- an `area_alert` polygon/point is treated as contextual only; it is not interpreted as every road inside the area being closed
+- an area alert is mapped as a road closure only when explicit line geometry is supplied
+- full road closures are classified as **impassable** and rendered red
+- lane/restricted/conditional-access events are rendered amber
+
+Warning-area road maps show both full closures and restrictions. On the statewide quiet-day map only full closures are drawn so hundreds of conditional-access events do not obscure the operational picture. Restriction counts are still reported in the map footer.
+
 ### Rain radar
 
 The default radar source is the public **RainViewer Weather Maps API**:
@@ -72,6 +91,7 @@ Implemented:
 - official BOM CAP severe-thunderstorm warning discovery and polygon parsing
 - optional registered spatial-warning override
 - current unplanned power outage ingestion
+- live QLD Traffic road closure/restriction ingestion and temporal filtering
 - Queensland LGA boundary ingestion and labels
 - combined-warning extent calculation
 - individual maps when multiple warnings are active
@@ -170,9 +190,14 @@ Generated files are written under:
 generated/
   manifest.json
   warning-outages-combined.png
+  warning-roads-combined.png
   warning-radar-combined.png
   warning-outages-<warning-id>.png
+  warning-roads-<warning-id>.png
   warning-radar-<warning-id>.png
+  warning-outages-statewide.png
+  warning-roads-statewide.png
+  warning-radar-statewide.png
 ```
 
 With one warning, the combined view is the operational view. With multiple warnings, the generator creates the combined view plus maps for each warning.
@@ -184,8 +209,9 @@ The manifest contains generation time, source status, warning metadata, map boun
 ```text
 Official BOM CAP ───────────────┐
 Registered warning geometry ───┤ (optional override)
-Power outage GeoJSON ──────────┼─> Python generator ─> PNG maps + manifest ─> GitHub Pages
-QLD LGA boundaries ─────────────┤
+Power outage GeoJSON ──────────┤
+QLD Traffic live GeoJSON ───────┼─> Python generator ─> PNG maps + manifest ─> GitHub Pages
+QLD LGA/coast/border data ──────┤
 RainViewer radar tiles ──────────┘
 ```
 
