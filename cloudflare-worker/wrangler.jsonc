@@ -6,12 +6,5 @@
   "workers_dev": true,
   "observability": {
     "enabled": true
-  },
-  "secrets_store_secrets": [
-    {
-      "binding": "GITHUB_TOKEN",
-      "store_id": "17aa824182984ec9b64dda7c1b91ff8a",
-      "secret_name": "mapping-github-token"
-    }
-  ]
+  }
 }
