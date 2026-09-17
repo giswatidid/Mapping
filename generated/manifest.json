@@ -1,19 +1,19 @@
 {
-  "generated_at": "2026-09-17T10:28:18+10:00",
+  "generated_at": "2026-09-17T10:29:36+10:00",
   "mode": "live",
   "status": "no_active_warnings",
   "sources": {
     "warnings": {
       "status": "no_active_warnings",
       "message": "No active Queensland severe thunderstorm CAP warnings remained after validity filtering.",
-      "timestamp": "2026-09-17T00:28:28Z",
+      "timestamp": "2026-09-17T00:29:47Z",
       "url": "https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/rss.xml",
       "count": 0
     },
     "outages": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-17T00:28:28Z",
+      "timestamp": "2026-09-17T00:29:48Z",
       "url": "https://raw.githubusercontent.com/gowlettluke/qldpoweroutages/main/data/current_outages.geojson",
       "count": 6
     },
@@ -27,42 +27,42 @@
     "lgas": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-17T00:28:36Z",
+      "timestamp": "2026-09-17T00:29:54Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdminBoundariesFramework/FeatureServer/11/query?where=1%3D1&outFields=%2A&returnGeometry=true&outSR=4326&f=geojson",
       "count": 78
     },
     "coastline": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-17T00:28:42Z",
+      "timestamp": "2026-09-17T00:29:59Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/55/query?where=1%3D1&outFields=feature_type&returnGeometry=true&outSR=4326&f=geojson",
       "count": 4721
     },
     "state_border": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-17T00:28:43Z",
+      "timestamp": "2026-09-17T00:30:01Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/5/query?where=1%3D1&outFields=border_desc%2Cstate_desc&returnGeometry=true&outSR=4326&f=geojson",
       "count": 124
     },
     "mainland": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-17T00:28:48Z",
+      "timestamp": "2026-09-17T00:30:04Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Location/GeographicalFeatures/FeatureServer/90/query?where=1%3D1&outFields=feature_type%2Cname&returnGeometry=true&outSR=4326&f=geojson",
       "count": 2
     },
     "population_centres": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-17T00:28:49Z",
+      "timestamp": "2026-09-17T00:30:05Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Location/Places/FeatureServer/20/query?where=1%3D1&outFields=name%2Cpopulation%2Coperational_status%2Cupper_scale&returnGeometry=true&outSR=4326&f=geojson",
       "count": 758
     },
     "major_roads": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-17T00:28:53Z",
+      "timestamp": "2026-09-17T00:30:08Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/23/query?where=symbol_class+IN+%28%27Motorway%27%2C%27Highway%27%29&outFields=road_name_full%2Csymbol_class&returnGeometry=true&outSR=4326&f=geojson",
       "count": 10000
     },
