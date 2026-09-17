@@ -212,7 +212,21 @@ async function generateMaps() {
 
   try {
     const response = await fetch(dispatchUrl, { method: "POST" });
-    if (!response.ok) throw new Error("Generation request returned HTTP " + response.status);
+    if (!response.ok) {
+      let detail = "";
+      try {
+        const body = await response.json();
+        detail = body.error || body.message || "";
+      } catch (_) {
+        try {
+          detail = await response.text();
+        } catch (_) {}
+      }
+      throw new Error(
+        "Generation request returned HTTP " + response.status +
+        (detail ? ": " + detail : "")
+      );
+    }
 
     const started = Date.now();
     while (Date.now() - started < 180000) {
