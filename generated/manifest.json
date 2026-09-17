@@ -1,68 +1,68 @@
 {
-  "generated_at": "2026-09-18T00:57:57+10:00",
+  "generated_at": "2026-09-18T04:56:11+10:00",
   "mode": "live",
   "status": "no_active_warnings",
   "sources": {
     "warnings": {
       "status": "no_active_warnings",
       "message": "No active Queensland severe thunderstorm CAP warnings remained after validity filtering.",
-      "timestamp": "2026-09-17T14:58:06Z",
+      "timestamp": "2026-09-17T18:56:23Z",
       "url": "https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/rss.xml",
       "count": 0
     },
     "outages": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-17T14:58:06Z",
+      "timestamp": "2026-09-17T18:56:24Z",
       "url": "https://raw.githubusercontent.com/gowlettluke/qldpoweroutages/main/data/current_outages.geojson",
-      "count": 4
+      "count": 3
     },
     "road_closures": {
       "status": "ok",
       "message": "Live QLD Traffic events filtered to current road closures and conditional-access restrictions. Area-alert polygons are not treated as closed roads unless explicit road-line geometry is supplied.",
-      "timestamp": "2026-09-18T00:09:27.997805+10:00",
+      "timestamp": "2026-09-18T04:52:05.661332+10:00",
       "url": "https://data.qldtraffic.qld.gov.au/events_v2.geojson",
       "count": 339
     },
     "lgas": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-17T14:58:17Z",
+      "timestamp": "2026-09-17T18:56:30Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdminBoundariesFramework/FeatureServer/11/query?where=1%3D1&outFields=%2A&returnGeometry=true&outSR=4326&f=geojson",
       "count": 78
     },
     "coastline": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-17T14:58:21Z",
+      "timestamp": "2026-09-17T18:56:36Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/55/query?where=1%3D1&outFields=feature_type&returnGeometry=true&outSR=4326&f=geojson",
       "count": 4721
     },
     "state_border": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-17T14:58:22Z",
+      "timestamp": "2026-09-17T18:56:37Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/5/query?where=1%3D1&outFields=border_desc%2Cstate_desc&returnGeometry=true&outSR=4326&f=geojson",
       "count": 124
     },
     "mainland": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-17T14:58:26Z",
+      "timestamp": "2026-09-17T18:56:40Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Location/GeographicalFeatures/FeatureServer/90/query?where=1%3D1&outFields=feature_type%2Cname&returnGeometry=true&outSR=4326&f=geojson",
       "count": 2
     },
     "population_centres": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-17T14:58:26Z",
+      "timestamp": "2026-09-17T18:56:41Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Location/Places/FeatureServer/20/query?where=1%3D1&outFields=name%2Cpopulation%2Coperational_status%2Cupper_scale&returnGeometry=true&outSR=4326&f=geojson",
       "count": 758
     },
     "major_roads": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-17T14:58:29Z",
+      "timestamp": "2026-09-17T18:56:44Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/23/query?where=symbol_class+IN+%28%27Motorway%27%2C%27Highway%27%29&outFields=road_name_full%2Csymbol_class&returnGeometry=true&outSR=4326&f=geojson",
       "count": 10000
     },
@@ -72,7 +72,7 @@
       "url": "https://api.rainviewer.com/public/weather-maps.json",
       "layer": "composite_reflectivity",
       "message": "RainViewer public composite radar API (Universal Blue reflectivity).",
-      "timestamp": "2026-09-17T14:50:00+00:00",
+      "timestamp": "2026-09-17T18:50:00+00:00",
       "tile_matrix": "WebMercator z6"
     }
   },
@@ -90,7 +90,7 @@
         155.9779896450013,
         -8.720590217245178
       ],
-      "radar_time": "2026-09-17T14:50:00+00:00",
+      "radar_time": "2026-09-17T18:50:00+00:00",
       "radar_layer": "composite_reflectivity",
       "radar_tile_matrix": "WebMercator z6",
       "radar_tiles": 20,
@@ -109,12 +109,12 @@
         155.9779896450013,
         -8.720590217245178
       ],
-      "outages_in_extent": 4,
-      "outage_polygons": 4,
+      "outages_in_extent": 3,
+      "outage_polygons": 3,
       "outage_points": 0,
-      "customers_affected": 358,
-      "customers_known_outages": 4,
-      "customer_labels_shown": 3,
+      "customers_affected": 153,
+      "customers_known_outages": 3,
+      "customer_labels_shown": 2,
       "road_events_in_extent": 339,
       "roads_closed": 46,
       "roads_restricted": 293,
