@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>ArcGIS OAuth Compatibility Test</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f6f7;
+      color: #1f2933;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f5f6f7; color: #1f2933; }
+    main { max-width: 760px; margin: 48px auto; padding: 0 20px 48px; }
+    .card {
+      background: #fff;
+      border: 1px solid #d9dee5;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgb(16 24 40 / 8%);
+      padding: 28px;
+    }
+    h1 { margin: 0 0 8px; font-size: 1.65rem; }
+    h2 { margin: 28px 0 8px; font-size: 1.08rem; }
+    p, li { line-height: 1.55; }
+    .muted { color: #667085; }
+    .warning {
+      margin: 20px 0;
+      padding: 14px 16px;
+      border: 1px solid #e7b44c;
+      border-radius: 8px;
+      background: #fff8e6;
+      color: #684900;
+    }
+    .stop {
+      margin: 20px 0;
+      padding: 14px 16px;
+      border: 1px solid #e38b8b;
+      border-radius: 8px;
+      background: #fff1f1;
+      color: #7a1f1f;
+    }
+    label { display: block; font-weight: 650; margin-top: 18px; }
+    .org-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      margin-top: 7px;
+    }
+    input {
+      width: 100%;
+      border: 1px solid #b8c0cc;
+      border-radius: 8px;
+      padding: 11px 12px;
+      font: inherit;
+      background: #fff;
+      color: #101828;
+    }
+    .suffix { color: #475467; white-space: nowrap; }
+    button {
+      margin-top: 22px;
+      border: 0;
+      border-radius: 8px;
+      padding: 11px 17px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      background: #344054;
+      color: #fff;
+    }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    #result {
+      margin-top: 18px;
+      padding: 13px 15px;
+      border-radius: 8px;
+      background: #eef2f6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    code {
+      background: #eef2f6;
+      padding: 2px 5px;
+      border-radius: 4px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root, body { background: #11151b; color: #e5e7eb; }
+      .card { background: #171c24; border-color: #303846; box-shadow: none; }
+      .muted, .suffix { color: #aeb7c4; }
+      input { background: #11151b; color: #f5f7fa; border-color: #475467; }
+      .warning { background: #332a10; border-color: #80631d; color: #f6dc90; }
+      .stop { background: #341919; border-color: #884848; color: #f1b1b1; }
+      #result, code { background: #222936; }
+      button { background: #e5e7eb; color: #111827; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="card">
+      <h1>ArcGIS OAuth Compatibility Test</h1>
+      <p class="muted">
+        This isolated page tests whether an ArcGIS Online organisation will start a normal OAuth sign-in flow for an externally registered application.
+        Nothing entered here is stored in the repository.
+      </p>
+
+      <div class="warning">
+        <strong>Safe-test boundary:</strong> this page only opens the standard ArcGIS OAuth authorisation endpoint.
+        It does not request administrator approval, access private layers, exchange an authorisation code for a token, or contact an administrator.
+      </div>
+
+      <div class="stop">
+        <strong>Stop immediately</strong> if ArcGIS shows wording such as
+        <em>Request approval</em>, <em>Request access</em>, <em>Contact your administrator</em>,
+        or says the application must be approved. Do not click any approval/access-request control.
+        <br><br>
+        If you instead reach a normal app consent/permissions page, stop there as well and review it before selecting Allow/Approve.
+      </div>
+
+      <form id="testForm" autocomplete="off">
+        <label for="orgPrefix">ArcGIS organisation</label>
+        <div class="org-row">
+          <input id="orgPrefix" name="orgPrefix" inputmode="url" spellcheck="false"
+                 placeholder="organisation-prefix" required>
+          <span class="suffix">.maps.arcgis.com</span>
+        </div>
+
+        <label for="clientId">OAuth client ID</label>
+        <input id="clientId" name="clientId" spellcheck="false" autocomplete="off"
+               placeholder="Paste the externally registered client ID" required>
+
+        <button type="submit">Open ArcGIS sign-in test</button>
+      </form>
+
+      <div id="result" hidden></div>
+
+      <h2>Registered redirect URL</h2>
+      <p>
+        Register this exact redirect URL on the OAuth credential:
+        <code id="redirectUrl"></code>
+      </p>
+
+      <p class="muted">
+        Organisation prefix and client ID are used only to construct the next URL in this browser session.
+        They are not written to localStorage or sent to this GitHub Pages site.
+      </p>
+    </div>
+  </main>
+
+  <script>
+    (function () {
+      const form = document.getElementById("testForm");
+      const orgInput = document.getElementById("orgPrefix");
+      const clientInput = document.getElementById("clientId");
+      const result = document.getElementById("result");
+      const redirectUrl = location.origin + location.pathname;
+      document.getElementById("redirectUrl").textContent = redirectUrl;
+
+      // If somebody proceeds beyond the intended stopping point and ArcGIS
+      // redirects back with a code, deliberately do not exchange it for a token.
+      const params = new URLSearchParams(location.search);
+      const returnedCode = params.get("code");
+      const returnedError = params.get("error");
+      const returnedDescription = params.get("error_description");
+
+      if (returnedCode || returnedError) {
+        history.replaceState({}, document.title, location.pathname);
+
+        result.hidden = false;
+        if (returnedCode) {
+          result.textContent =
+            "ArcGIS returned an authorisation code. This page has NOT exchanged it for an access token. " +
+            "The compatibility test has already gone farther than required; no further authentication action is needed here.";
+        } else {
+          result.textContent =
+            "ArcGIS returned an OAuth error: " +
+            (returnedDescription || returnedError || "Unknown error") +
+            ". No token exchange was attempted.";
+        }
+      }
+
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+
+        const prefix = orgInput.value.trim().toLowerCase();
+        const clientId = clientInput.value.trim();
+
+        if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(prefix)) {
+          result.hidden = false;
+          result.textContent = "Enter only the organisation prefix, without https://, dots, slashes, or a path.";
+          return;
+        }
+
+        if (!/^[A-Za-z0-9_-]{8,128}$/.test(clientId)) {
+          result.hidden = false;
+          result.textContent = "The client ID format does not look valid.";
+          return;
+        }
+
+        const stateBytes = new Uint8Array(16);
+        crypto.getRandomValues(stateBytes);
+        const state = Array.from(stateBytes, function (byte) {
+          return byte.toString(16).padStart(2, "0");
+        }).join("");
+
+        const authorise = new URL(
+          "https://" + prefix + ".maps.arcgis.com/sharing/rest/oauth2/authorize"
+        );
+        authorise.searchParams.set("client_id", clientId);
+        authorise.searchParams.set("response_type", "code");
+        authorise.searchParams.set("redirect_uri", redirectUrl);
+        authorise.searchParams.set("state", state);
+
+        // Do not persist the organisation prefix or client ID.
+        location.assign(authorise.toString());
+      });
+    })();
+  </script>
+</body>
+</html>
