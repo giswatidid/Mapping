@@ -42,10 +42,21 @@ export default {
       return json(origin, 405, { ok: false, error: "Method not allowed" });
     }
 
-    if (!env.GITHUB_TOKEN) {
+    let githubToken = null;
+    try {
+      if (env.GITHUB_TOKEN && typeof env.GITHUB_TOKEN.get === "function") {
+        // Cloudflare Secrets Store binding.
+        githubToken = await env.GITHUB_TOKEN.get();
+      } else if (typeof env.GITHUB_TOKEN === "string") {
+        // Standard Worker secret/environment binding.
+        githubToken = env.GITHUB_TOKEN;
+      }
+    } catch (_) {}
+
+    if (!githubToken) {
       return json(origin, 500, {
         ok: false,
-        error: "GITHUB_TOKEN is not configured on the Worker.",
+        error: "GITHUB_TOKEN is not configured as a Worker runtime secret/binding.",
       });
     }
 
@@ -55,7 +66,7 @@ export default {
         method: "POST",
         headers: {
           "Accept": "application/vnd.github+json",
-          "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
+          "Authorization": `Bearer ${githubToken}`,
           "X-GitHub-Api-Version": "2022-11-28",
           "User-Agent": "mapping-generate-worker",
           "Content-Type": "application/json",
