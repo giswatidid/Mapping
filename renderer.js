@@ -617,29 +617,40 @@
     }
   }
 
-  function drawContext(ctx, width, height, extent, data, active) {
+  function drawContext(ctx, width, height, extent, data, active, basemapImage=null) {
     const project = makeTransform(extent, width, height);
-    ctx.fillStyle = "#dcecf4";
-    ctx.fillRect(0, 0, width, height);
 
-    drawFeatureSet(ctx, data.mainland, project, {
-      fillStyle: "#f2eee4",
-      strokeStyle: "rgba(112,106,94,.25)",
-      lineWidth: 0.8
-    });
+    if (basemapImage) {
+      // ArcGIS Topographic supplies land/water, relief, roads and place labels.
+      // Avoid redrawing those handcrafted context layers over it.
+      ctx.drawImage(basemapImage, 0, 0, width, height);
+    } else {
+      // Graceful fallback when the signed-in ArcGIS account cannot access the
+      // Basemap Styles service.
+      ctx.fillStyle = "#dcecf4";
+      ctx.fillRect(0, 0, width, height);
 
-    drawFeatureSet(ctx, data.roads, project, {
-      strokeStyle: "rgba(124,118,107,.34)",
-      lineWidth: 1.2
-    });
+      drawFeatureSet(ctx, data.mainland, project, {
+        fillStyle: "#f2eee4",
+        strokeStyle: "rgba(112,106,94,.25)",
+        lineWidth: 0.8
+      });
 
+      drawFeatureSet(ctx, data.roads, project, {
+        strokeStyle: "rgba(124,118,107,.34)",
+        lineWidth: 1.2
+      });
+
+      drawPopulationCentres(ctx, data.centres, project, !active);
+    }
+
+    // Keep operational Queensland context above either basemap.
     drawFeatureSet(ctx, data.lga, project, {
       strokeStyle: "rgba(101,107,111,.42)",
       lineWidth: 1
     });
 
     drawLgaLabels(ctx, data.lga, project, active);
-    drawPopulationCentres(ctx, data.centres, project, !active);
 
     drawFeatureSet(ctx, data.coastline, project, {
       strokeStyle: "#4d5458",
@@ -657,7 +668,7 @@
   function makeProductCanvas(mapWidth, mapHeight, title, subtitle) {
     const top = 66;
     const legendHeight = 116;
-    const footerHeight = 74;
+    const footerHeight = 90;
     const canvas = document.createElement("canvas");
     canvas.width = mapWidth;
     canvas.height = mapHeight + top + legendHeight + footerHeight;
@@ -851,7 +862,7 @@
     ctx.font = "12px Arial";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    lines.slice(0, 3).forEach((line, index) => {
+    lines.slice(0, 4).forEach((line, index) => {
       ctx.fillText(line, 14, y + 12 + index * 17);
     });
   }
@@ -942,6 +953,11 @@
       arcgis.renderWmsImage("radar", extent, mapWidth, mapHeight)
     ];
 
+    const basemapPromise = arcgis.renderBasemapImage
+      ? arcgis.renderBasemapImage(extent, mapWidth, mapHeight)
+          .catch(() => null)
+      : Promise.resolve(null);
+
     if (trackingEnabled && optionalTrackingTitles.length) {
       renderJobs.push(
         arcgis.renderWmsImage("warning", extent, mapWidth, mapHeight, {
@@ -950,7 +966,10 @@
       );
     }
 
-    const renderResults = await Promise.all(renderJobs);
+    const [renderResults, basemapResult] = await Promise.all([
+      Promise.all(renderJobs),
+      basemapPromise
+    ]);
     const warningResult = renderResults[0];
     const radarResult = renderResults[1];
     const trackingResult = renderResults[2] || null;
@@ -960,11 +979,17 @@
       blobToBitmap(radarResult.blob)
     ];
     if (trackingResult) imageJobs.push(blobToBitmap(trackingResult.blob));
+    const basemapIndex = imageJobs.length;
+    if (basemapResult?.blob) imageJobs.push(blobToBitmap(basemapResult.blob));
 
     const decoded = await Promise.all(imageJobs);
     const warningImage = decoded[0];
     const radarImage = decoded[1];
-    const trackingImage = decoded[2] || null;
+    const trackingImage = trackingResult ? decoded[2] : null;
+    const basemapImage = basemapResult?.blob ? decoded[basemapIndex] : null;
+    const basemapAttribution = basemapResult?.attribution
+      ? "Basemap: ArcGIS Topographic · " + basemapResult.attribution
+      : "Basemap: built-in Queensland context · ArcGIS Topographic unavailable for this signed-in account.";
 
     const scopeText = active ? "Current severe-thunderstorm warning extent" : "Queensland statewide · no active severe-thunderstorm warning detected";
     const generated = new Date();
@@ -986,7 +1011,7 @@
     const rctx = radarProduct.ctx;
     rctx.save();
     rctx.translate(radarProduct.mapX, radarProduct.mapY);
-    drawContext(rctx, mapWidth, mapHeight, extent, publicData, active);
+    drawContext(rctx, mapWidth, mapHeight, extent, publicData, active, basemapImage);
 
     // Warning fill/context sits below radar. Keep the radar at its native/full
     // opacity so light rain-rate returns remain visible. Do not redraw the
@@ -1005,7 +1030,8 @@
     drawRadarLegend(rctx, radarProduct, active, trackingEnabled);
     drawFooter(rctx, radarProduct, [
       "Generated " + stamp + " · Warning and radar rendered through authenticated ArcGIS services." + (trackingEnabled ? " · Thunderstorm cell tracking included." : ""),
-      "Context: Queensland Government coastline, state border, LGAs, major roads and population centres.",
+      basemapAttribution,
+      "Queensland Government context: coastline, state border and LGAs.",
       publicWarnings.length ? "Context warning: " + publicWarnings[0] : "Private weather data is not committed to GitHub."
     ]);
 
@@ -1018,7 +1044,7 @@
     const ictx = infraProduct.ctx;
     ictx.save();
     ictx.translate(infraProduct.mapX, infraProduct.mapY);
-    const project = drawContext(ictx, mapWidth, mapHeight, extent, publicData, active);
+    const project = drawContext(ictx, mapWidth, mapHeight, extent, publicData, active, basemapImage);
     ictx.drawImage(warningImage, 0, 0, mapWidth, mapHeight);
     if (trackingImage) {
       ictx.drawImage(trackingImage, 0, 0, mapWidth, mapHeight);
@@ -1041,6 +1067,7 @@
     drawFooter(ictx, infraProduct, [
       "Generated " + stamp + " · " + (publicData.outagesNorm || []).length + " unplanned outage area(s), " + knownCustomers.toLocaleString("en-AU") + " known customers affected." + (trackingEnabled ? " · Thunderstorm cell tracking included." : ""),
       "QLD Traffic: " + fullClosures + " full closure(s)" + (active ? " and " + restrictions + " restriction(s)." : "; conditional restrictions suppressed on statewide view."),
+      basemapAttribution,
       publicWarnings.length ? "Context warning: " + publicWarnings[0] : "Road conditions: QLD Traffic · power outages: public Queensland outage feed."
     ]);
 
