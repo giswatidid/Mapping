@@ -40,6 +40,7 @@ window.MAPPING_CONFIG = {
   },
   rendering: {
     basemapStyle: "arcgis/topographic",
+    outputSpatialReference: 3857,
     qldExtent: [137.7, -29.3, 154.2, -9.0],
     warningDetectionSize: [720, 900],
     maxOutputWidth: 1500,
