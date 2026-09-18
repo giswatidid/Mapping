@@ -1,0 +1,75 @@
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 28px 16px;
+  background: var(--bg);
+}
+.auth-page[hidden], .shell[hidden], .modal-backdrop[hidden] { display: none !important; }
+.auth-card {
+  width: min(600px, 100%);
+  padding: 28px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 7px solid var(--accent);
+  box-shadow: 0 8px 30px rgba(0,0,0,.1);
+}
+.auth-card h1 { margin: 0; color: var(--text); font-size: clamp(1.8rem,4vw,2.7rem); letter-spacing: -.035em; }
+.auth-intro { margin: 10px 0 22px; color: var(--muted); font-size: .96rem; line-height: 1.5; }
+.auth-form label { display:block; margin-bottom:7px; color:var(--text); font-weight:800; }
+.org-input-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; }
+.org-input-row input, .layer-search-form input {
+  min-width:0; min-height:40px; width:100%; padding:8px 10px;
+  border:1px solid var(--line-strong); border-radius:3px; background:var(--panel); color:var(--text); font:inherit;
+}
+.org-input-row span { color:var(--muted); white-space:nowrap; font-weight:700; }
+.auth-submit { margin-top:14px; min-height:38px; }
+.auth-status { margin-top:16px; padding:10px 12px; border:1px solid var(--line); background:var(--panel2); color:var(--muted); line-height:1.4; }
+.auth-status.error { border-color:var(--accent-border); background:var(--accent-soft); color:var(--danger); }
+.auth-status.info { border-color:var(--blue-border); background:var(--blue-soft); color:var(--blue); }
+.auth-privacy { margin-top:22px; padding-top:16px; border-top:1px solid var(--line); }
+.auth-privacy p { margin:5px 0 0; color:var(--muted); font-size:.8rem; line-height:1.45; }
+.topbar-side { display:grid; justify-items:end; gap:8px; }
+.arcgis-account { display:flex; align-items:center; gap:8px; max-width:100%; padding:6px 8px; border:1px solid var(--line); background:var(--panel2); }
+.account-dot { width:9px; height:9px; border-radius:50%; background:var(--green); flex:0 0 auto; }
+.arcgis-account > span:not(.account-dot) { min-width:0; display:grid; }
+.arcgis-account strong, .arcgis-account small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.arcgis-account strong { color:var(--text); font-size:.8rem; }
+.arcgis-account small { color:var(--muted); font-size:.7rem; }
+.text-button, .modal-close { min-height:26px; padding:0 8px; background:transparent; }
+.auth-chip { color:var(--green); border-color:color-mix(in srgb,var(--green) 35%,var(--line)); background:var(--green-soft); }
+.arcgis-source-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.arcgis-source-card {
+  min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:14px; align-items:center;
+  padding:12px; border:1px solid var(--line); border-top:3px solid var(--blue); background:var(--panel);
+}
+.source-role { display:block; margin-bottom:5px; color:var(--muted); font-size:.7rem; font-weight:800; letter-spacing:.055em; text-transform:uppercase; }
+.selected-layer { display:block; color:var(--muted); font-size:.94rem; overflow-wrap:anywhere; }
+.selected-layer.configured { color:var(--text); }
+.arcgis-source-card p { margin:5px 0 0; color:var(--muted); font-size:.77rem; line-height:1.4; }
+.source-actions { display:flex; gap:6px; align-items:center; }
+body.modal-open { overflow:hidden; }
+.modal-backdrop { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:18px; background:rgba(10,15,22,.62); }
+.layer-picker {
+  width:min(820px,100%); max-height:min(82vh,800px); display:grid; grid-template-rows:auto auto auto minmax(0,1fr);
+  overflow:hidden; background:var(--panel); border:1px solid var(--line-strong); box-shadow:0 20px 60px rgba(0,0,0,.28);
+}
+.layer-picker-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:14px; border-bottom:1px solid var(--line); background:var(--panel2); }
+.layer-picker-head h2 { margin:0; color:var(--text); font-size:1.1rem; }
+.layer-search-form { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:7px; padding:12px 14px 8px; }
+.layer-search-status { margin:0; padding:0 14px 10px; color:var(--muted); font-size:.8rem; line-height:1.35; }
+.layer-results { min-height:100px; overflow-y:auto; padding:0 14px 14px; }
+.layer-result {
+  width:100%; min-height:58px; display:grid; gap:3px; align-content:center; margin:0 0 7px; padding:9px 11px;
+  text-align:left; white-space:normal; border:1px solid var(--line); border-left:4px solid var(--blue); background:var(--panel);
+}
+.layer-result:hover { border-color:var(--line-strong); background:var(--panel2); }
+.layer-result strong { color:var(--text); font-size:.88rem; }
+.layer-result span { color:var(--muted); font-size:.75rem; line-height:1.3; }
+@media (max-width:1200px) { .topbar-side{justify-items:start} .arcgis-source-grid{grid-template-columns:1fr} }
+@media (max-width:760px) {
+  .auth-card{padding:20px 16px} .org-input-row{grid-template-columns:1fr;gap:4px} .org-input-row span{font-size:.8rem}
+  .arcgis-account{width:100%} .arcgis-account > span:not(.account-dot){flex:1} .arcgis-source-card{grid-template-columns:1fr}
+  .source-actions{display:grid;grid-template-columns:1fr 1fr} .source-actions button{width:100%}
+  .layer-search-form{grid-template-columns:1fr} .layer-picker{max-height:90vh}
+}
