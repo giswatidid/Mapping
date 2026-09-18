@@ -291,11 +291,14 @@ async function renderWmsPrintImage(role, extent, width, height, sourceOverride=n
     : [spec.sublayerTitle];
 
   const resolvedSublayers = requestedTitles.map((title) => {
-    if (normalise(title) === normalise(spec.sublayerTitle) && source.sublayerName) {
-      return {
-        name: source.sublayerName,
-        title: spec.sublayerTitle
-      };
+    if (normalise(title) === normalise(spec.sublayerTitle)) {
+      const configuredNativeName = String(spec.wmsLayerName || "").trim();
+      if (configuredNativeName || source.sublayerName) {
+        return {
+          name: configuredNativeName || source.sublayerName,
+          title: spec.sublayerTitle
+        };
+      }
     }
 
     const found = findSublayerMetadata(data, title);
