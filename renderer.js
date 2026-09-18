@@ -13,6 +13,8 @@
   const generatedAt = document.querySelector("#generatedAt");
   const warningCount = document.querySelector("#warningCount");
   const modeEl = document.querySelector("#mode");
+  const cellTrackingToggle = document.querySelector("#cellTrackingToggle");
+  const TRACKING_PREF_KEY = "mapping.includeThunderstormCellTracking";
 
   let outputUrls = [];
 
@@ -36,6 +38,27 @@
   ];
 
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+  function loadTrackingPreference() {
+    try {
+      return localStorage.getItem(TRACKING_PREF_KEY) === "true";
+    } catch {
+      return false;
+    }
+  }
+
+  function saveTrackingPreference(enabled) {
+    try {
+      localStorage.setItem(TRACKING_PREF_KEY, String(Boolean(enabled)));
+    } catch {}
+  }
+
+  function trackingTitles() {
+    const warningSpec = cfg.arcgis?.standardSources?.warning || {};
+    return Array.isArray(warningSpec.trackingSublayerTitles)
+      ? warningSpec.trackingSublayerTitles.filter(Boolean)
+      : [];
+  }
 
   function cleanMessage(error, fallback="Map generation failed.") {
     return String(error?.message || error || fallback)
@@ -699,7 +722,7 @@
     ctx.fillText(label, x + width + 8, y);
   }
 
-  function drawRadarLegend(ctx, product, active) {
+  function drawRadarLegend(ctx, product, active, trackingEnabled=false) {
     const y = product.legendY;
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, y, product.canvas.width, product.legendHeight);
@@ -748,10 +771,16 @@
     ctx.font = "10px Arial";
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
-    ctx.fillText("Bureau of Meteorology radar rain-rate symbology", 16, y + 103);
+    ctx.fillText(
+      trackingEnabled
+        ? "Thunderstorm cell tracking overlay: storm cell, UTC time and direction."
+        : "Bureau of Meteorology radar rain-rate symbology",
+      16,
+      y + 103
+    );
   }
 
-  function drawInfrastructureLegend(ctx, product, active, hasPointOutages=false) {
+  function drawInfrastructureLegend(ctx, product, active, hasPointOutages=false, trackingEnabled=false) {
     const y = product.legendY;
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, y, product.canvas.width, product.legendHeight);
@@ -798,7 +827,13 @@
     ctx.font = "10px Arial";
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
-    ctx.fillText("Road event names are intentionally omitted from the operational map.", 16, y + 103);
+    ctx.fillText(
+      trackingEnabled
+        ? "Thunderstorm cell tracking overlay: storm cell, UTC time and direction."
+        : "Road event names are intentionally omitted from the operational map.",
+      16,
+      y + 103
+    );
   }
 
   function drawFooter(ctx, product, lines) {
@@ -874,14 +909,37 @@
     const [mapWidth, mapHeight] = mapSize(extent);
     const arcgis = window.MAPPING_ARCGIS;
 
-    const [warningResult, radarResult] = await Promise.all([
+    const trackingEnabled = Boolean(cellTrackingToggle?.checked);
+    const optionalTrackingTitles = trackingEnabled ? trackingTitles() : [];
+
+    const renderJobs = [
       arcgis.renderWmsImage("warning", extent, mapWidth, mapHeight),
       arcgis.renderWmsImage("radar", extent, mapWidth, mapHeight)
-    ]);
-    const [warningImage, radarImage] = await Promise.all([
+    ];
+
+    if (trackingEnabled && optionalTrackingTitles.length) {
+      renderJobs.push(
+        arcgis.renderWmsImage("warning", extent, mapWidth, mapHeight, {
+          sublayerTitles: optionalTrackingTitles
+        })
+      );
+    }
+
+    const renderResults = await Promise.all(renderJobs);
+    const warningResult = renderResults[0];
+    const radarResult = renderResults[1];
+    const trackingResult = renderResults[2] || null;
+
+    const imageJobs = [
       blobToBitmap(warningResult.blob),
       blobToBitmap(radarResult.blob)
-    ]);
+    ];
+    if (trackingResult) imageJobs.push(blobToBitmap(trackingResult.blob));
+
+    const decoded = await Promise.all(imageJobs);
+    const warningImage = decoded[0];
+    const radarImage = decoded[1];
+    const trackingImage = decoded[2] || null;
 
     const scopeText = active ? "Current severe-thunderstorm warning extent" : "Queensland statewide · no active severe-thunderstorm warning detected";
     const generated = new Date();
@@ -910,13 +968,16 @@
     rctx.globalAlpha = 0.55;
     rctx.drawImage(warningImage, 0, 0, mapWidth, mapHeight);
     rctx.globalAlpha = 1;
+    if (trackingImage) {
+      rctx.drawImage(trackingImage, 0, 0, mapWidth, mapHeight);
+    }
     rctx.strokeStyle = "#454b4f";
     rctx.lineWidth = 1;
     rctx.strokeRect(0.5, 0.5, mapWidth - 1, mapHeight - 1);
     rctx.restore();
-    drawRadarLegend(rctx, radarProduct, active);
+    drawRadarLegend(rctx, radarProduct, active, trackingEnabled);
     drawFooter(rctx, radarProduct, [
-      "Generated " + stamp + " · Warning and radar rendered through authenticated ArcGIS services.",
+      "Generated " + stamp + " · Warning and radar rendered through authenticated ArcGIS services." + (trackingEnabled ? " · Thunderstorm cell tracking included." : ""),
       "Context: Queensland Government coastline, state border, LGAs, major roads and population centres.",
       publicWarnings.length ? "Context warning: " + publicWarnings[0] : "Private weather data is not committed to GitHub."
     ]);
@@ -932,6 +993,9 @@
     ictx.translate(infraProduct.mapX, infraProduct.mapY);
     const project = drawContext(ictx, mapWidth, mapHeight, extent, publicData, active);
     ictx.drawImage(warningImage, 0, 0, mapWidth, mapHeight);
+    if (trackingImage) {
+      ictx.drawImage(trackingImage, 0, 0, mapWidth, mapHeight);
+    }
     drawOutages(ictx, publicData.outagesNorm || [], project, !active);
     drawRoadConditions(ictx, publicData.roadsNorm || [], project);
     ictx.strokeStyle = "#454b4f";
@@ -946,9 +1010,9 @@
     const hasPointOutages = (publicData.outagesNorm || []).some((outage) =>
       outage.geometry?.type === "Point" || outage.geometry?.type === "MultiPoint"
     );
-    drawInfrastructureLegend(ictx, infraProduct, active, hasPointOutages);
+    drawInfrastructureLegend(ictx, infraProduct, active, hasPointOutages, trackingEnabled);
     drawFooter(ictx, infraProduct, [
-      "Generated " + stamp + " · " + (publicData.outagesNorm || []).length + " unplanned outage area(s), " + knownCustomers.toLocaleString("en-AU") + " known customers affected.",
+      "Generated " + stamp + " · " + (publicData.outagesNorm || []).length + " unplanned outage area(s), " + knownCustomers.toLocaleString("en-AU") + " known customers affected." + (trackingEnabled ? " · Thunderstorm cell tracking included." : ""),
       "QLD Traffic: " + fullClosures + " full closure(s)" + (active ? " and " + restrictions + " restriction(s)." : "; conditional restrictions suppressed on statewide view."),
       publicWarnings.length ? "Context warning: " + publicWarnings[0] : "Road conditions: QLD Traffic · power outages: public Queensland outage feed."
     ]);
@@ -956,7 +1020,8 @@
     return {
       radarBlob: await canvasBlob(radarProduct.canvas),
       infraBlob: await canvasBlob(infraProduct.canvas),
-      generated
+      generated,
+      trackingEnabled
     };
   }
 
@@ -994,13 +1059,13 @@
         products.radarBlob,
         warning.active ? "Warning + Radar" : "Statewide Radar",
         warning.active ? "warning-radar-combined.png" : "warning-radar-statewide.png",
-        warning.active ? "radar · combined warning extent" : "radar · statewide"
+        (warning.active ? "radar · combined warning extent" : "radar · statewide") + (products.trackingEnabled ? " · cell tracking" : "")
       );
       addMapCard(
         products.infraBlob,
         warning.active ? "Warning + Infrastructure Impacts" : "Statewide Infrastructure Impacts",
         warning.active ? "warning-infrastructure-combined.png" : "warning-infrastructure-statewide.png",
-        warning.active ? "infrastructure · combined warning extent" : "infrastructure · statewide"
+        (warning.active ? "infrastructure · combined warning extent" : "infrastructure · statewide") + (products.trackingEnabled ? " · cell tracking" : "")
       );
 
       emptyEl.hidden = true;
@@ -1029,6 +1094,13 @@
       generateButton.disabled = false;
       generateButton.textContent = "Generate maps";
     }
+  }
+
+  if (cellTrackingToggle) {
+    cellTrackingToggle.checked = loadTrackingPreference();
+    cellTrackingToggle.addEventListener("change", () => {
+      saveTrackingPreference(cellTrackingToggle.checked);
+    });
   }
 
   generateButton?.addEventListener("click", generateMaps);
