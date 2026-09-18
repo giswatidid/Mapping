@@ -9,7 +9,7 @@ const ui = {
   signOut:q("#arcgisSignOut"), warning:q("#warningLayerSelection"), radar:q("#radarLayerSelection"),
   chooseWarning:q("#chooseWarningLayer"), chooseRadar:q("#chooseRadarLayer"), clearWarning:q("#clearWarningLayer"), clearRadar:q("#clearRadarLayer"),
   backdrop:q("#layerPickerBackdrop"), pickerTitle:q("#layerPickerTitle"), close:q("#layerPickerClose"),
-  searchForm:q("#layerSearchForm"), search:q("#layerSearchQuery"), searchStatus:q("#layerSearchStatus"), results:q("#layerSearchResults")
+  searchForm:q("#layerSearchForm"), scope:q("#layerSearchScope"), search:q("#layerSearchQuery"), searchStatus:q("#layerSearchStatus"), results:q("#layerSearchResults")
 };
 
 let esriId, OAuthInfo, Portal, portal, portalUrl, target;
@@ -55,9 +55,13 @@ function clearLayer(name) {
 function openPicker(name) {
   target = name;
   ui.pickerTitle.textContent = name === "warning" ? "Choose warning layer" : "Choose radar layer";
-  ui.search.value = ""; ui.results.innerHTML = "";
-  ui.searchStatus.textContent = "Search layer/service items available to your signed-in account.";
-  ui.backdrop.hidden = false; document.body.classList.add("modal-open"); ui.search.focus();
+  ui.scope.value = "mine";
+  ui.search.value = "";
+  ui.results.innerHTML = "";
+  ui.backdrop.hidden = false;
+  document.body.classList.add("modal-open");
+  ui.search.focus();
+  void runLayerSearch();
 }
 function closePicker() { target = null; ui.backdrop.hidden = true; document.body.classList.remove("modal-open"); }
 
@@ -67,9 +71,12 @@ function selectItem(item) {
   saveLayers(saved); renderLayers(); closePicker();
 }
 
-function showResults(items) {
+function showResults(items, scope) {
   ui.results.innerHTML = "";
-  ui.searchStatus.textContent = items.length ? items.length + " accessible item" + (items.length===1 ? "" : "s") + " found." : "No matching accessible layer/service items found.";
+  const scopeLabel = scope === "mine" ? "My Content" : "all accessible content";
+  ui.searchStatus.textContent = items.length
+    ? items.length + " layer/service item" + (items.length===1 ? "" : "s") + " found in " + scopeLabel + "."
+    : "No matching layer/service items found in " + scopeLabel + ".";
   items.forEach((item) => {
     const b = document.createElement("button"); b.type="button"; b.className="layer-result";
     const strong=document.createElement("strong"); strong.textContent=item.title || item.id;
@@ -78,11 +85,39 @@ function showResults(items) {
   });
 }
 
-async function searchLayers(text) {
+async function searchLayers(text, scope) {
   const types='(type:"Feature Service" OR type:"Map Service" OR type:"Image Service" OR type:"WMS" OR type:"WMTS")';
-  const query=text.trim() ? "(" + text.trim() + ") AND " + types : types;
-  const result=await portal.queryItems({query,num:100,sortField:"modified",sortOrder:"desc"});
+  const parts = [types];
+
+  if (scope === "mine") {
+    const username = portal.user?.username;
+    if (!username) throw new Error("The signed-in ArcGIS username is unavailable.");
+    parts.push('owner:"' + String(username).replaceAll('"', '\\"') + '"');
+  }
+
+  if (text.trim()) parts.unshift("(" + text.trim() + ")");
+
+  const result=await portal.queryItems({
+    query:parts.join(" AND "),
+    num:100,
+    sortField:"modified",
+    sortOrder:"desc"
+  });
   return result.results || [];
+}
+
+async function runLayerSearch() {
+  const scope = ui.scope.value === "accessible" ? "accessible" : "mine";
+  ui.searchStatus.textContent = scope === "mine"
+    ? "Loading layer/service items from My Content…"
+    : "Searching all ArcGIS content accessible to your account…";
+  ui.results.innerHTML = "";
+
+  try {
+    showResults(await searchLayers(ui.search.value, scope), scope);
+  } catch (err) {
+    ui.searchStatus.textContent = "ArcGIS search failed: " + (err.message || err);
+  }
 }
 
 function configure(prefixValue) {
@@ -112,7 +147,8 @@ async function init() {
   ui.chooseWarning.addEventListener("click",()=>openPicker("warning")); ui.chooseRadar.addEventListener("click",()=>openPicker("radar"));
   ui.clearWarning.addEventListener("click",()=>clearLayer("warning")); ui.clearRadar.addEventListener("click",()=>clearLayer("radar"));
   ui.close.addEventListener("click",closePicker); ui.backdrop.addEventListener("click",e=>{if(e.target===ui.backdrop)closePicker();});
-  ui.searchForm.addEventListener("submit",async e=>{e.preventDefault();ui.searchStatus.textContent="Searching accessible ArcGIS content…";ui.results.innerHTML="";try{showResults(await searchLayers(ui.search.value));}catch(err){ui.searchStatus.textContent="ArcGIS search failed: " + (err.message || err);}});
+  ui.searchForm.addEventListener("submit",e=>{e.preventDefault();void runLayerSearch();});
+  ui.scope.addEventListener("change",()=>{void runLayerSearch();});
   document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!ui.backdrop.hidden)closePicker();});
 
   const org=prefix(getLocal(ORG_KEY));

@@ -7,8 +7,8 @@
   <meta name="theme-color" content="#12161d" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
   <title>Queensland Severe Thunderstorm Mapping</title>
-  <link rel="stylesheet" href="styles.css?v=20260918-arcgis-auth1">
-  <link rel="stylesheet" href="auth.css?v=20260918-arcgis-auth1">
+  <link rel="stylesheet" href="styles.css?v=20260918-arcgis-auth2">
+  <link rel="stylesheet" href="auth.css?v=20260918-arcgis-auth2">
 </head>
 <body>
   <main id="loginGate" class="auth-page" hidden>
@@ -153,17 +153,21 @@
         <button id="layerPickerClose" class="modal-close" type="button" aria-label="Close layer picker">Close</button>
       </div>
       <form id="layerSearchForm" class="layer-search-form">
-        <input id="layerSearchQuery" type="search" placeholder="Search title, tags or owner; leave blank to browse recent layers" autocomplete="off">
+        <select id="layerSearchScope" aria-label="ArcGIS content scope">
+          <option value="mine" selected>My Content</option>
+          <option value="accessible">All accessible</option>
+        </select>
+        <input id="layerSearchQuery" type="search" placeholder="Search layer/service items" autocomplete="off">
         <button class="primary" type="submit">Search</button>
       </form>
-      <p id="layerSearchStatus" class="layer-search-status">Search ArcGIS content available to your signed-in account.</p>
+      <p id="layerSearchStatus" class="layer-search-status">Loading layer/service items from My Content…</p>
       <div id="layerSearchResults" class="layer-results"></div>
     </section>
   </div>
 
-  <script src="config.js?v=20260918-arcgis-auth1"></script>
+  <script src="config.js?v=20260918-arcgis-auth2"></script>
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
-  <script type="module" src="arcgis-auth.js?v=20260918-arcgis-auth1"></script>
-  <script src="app.js?v=20260918-arcgis-auth1"></script>
+  <script type="module" src="arcgis-auth.js?v=20260918-arcgis-auth2"></script>
+  <script src="app.js?v=20260918-arcgis-auth2"></script>
 </body>
 </html>
