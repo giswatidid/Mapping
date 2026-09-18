@@ -431,6 +431,7 @@ async function renderWmsPrintImage(role, extent, width, height, sourceOverride=n
   const sublayerNames = [...new Set(resolvedSublayers.map((entry) => entry.name))];
   const taskUrl = String(printTask).replace(/\/$/, "") + "/execute";
   const bounds = Array.isArray(extent) ? extent : [extent.xmin, extent.ymin, extent.xmax, extent.ymax];
+  const spatialReference = Number(options?.spatialReference || 4326);
 
   const webMap = {
     mapOptions: {
@@ -439,8 +440,9 @@ async function renderWmsPrintImage(role, extent, width, height, sourceOverride=n
         ymin: bounds[1],
         xmax: bounds[2],
         ymax: bounds[3],
-        spatialReference: { wkid: 4326 }
+        spatialReference: { wkid: spatialReference }
       },
+      spatialReference: { wkid: spatialReference },
       background: {
         color: [255, 255, 255, 0]
       }
@@ -674,7 +676,7 @@ function configure(prefixValue) {
   ]);
 }
 
-async function renderTopographicBasemap(extent, width, height) {
+async function renderTopographicBasemap(extent, width, height, options={}) {
   if (!ArcGISMap || !MapView || !reactiveUtils) {
     throw new Error("ArcGIS basemap rendering is not ready.");
   }
@@ -684,6 +686,7 @@ async function renderTopographicBasemap(extent, width, height) {
     : [extent.xmin, extent.ymin, extent.xmax, extent.ymax];
   const outputWidth = Math.max(64, Math.round(width));
   const outputHeight = Math.max(64, Math.round(height));
+  const spatialReference = Number(options?.spatialReference || 4326);
   const styleId = String(window.MAPPING_CONFIG?.rendering?.basemapStyle || "arcgis/topographic");
 
   const container = document.createElement("div");
@@ -708,7 +711,7 @@ async function renderTopographicBasemap(extent, width, height) {
       ymin: bounds[1],
       xmax: bounds[2],
       ymax: bounds[3],
-      spatialReference: { wkid: 4326 }
+      spatialReference: { wkid: spatialReference }
     },
     constraints: {
       snapToZoom: false,
@@ -744,10 +747,15 @@ async function renderTopographicBasemap(extent, width, height) {
     const blob = await response.blob();
     if (!blob?.size) throw new Error("ArcGIS Topographic returned an empty screenshot.");
 
+    const actualExtent = view.extent;
     return {
       blob,
       style: styleId,
-      attribution
+      attribution,
+      spatialReference: Number(view.spatialReference?.wkid || spatialReference),
+      extent: actualExtent
+        ? [actualExtent.xmin, actualExtent.ymin, actualExtent.xmax, actualExtent.ymax]
+        : bounds
     };
   } finally {
     view.destroy();
@@ -780,8 +788,8 @@ async function showApp() {
     renderWmsImage(role, extent, width, height, options={}) {
       return renderWmsPrintImage(role, extent, width, height, null, null, options);
     },
-    renderBasemapImage(extent, width, height) {
-      return renderTopographicBasemap(extent, width, height);
+    renderBasemapImage(extent, width, height, options={}) {
+      return renderTopographicBasemap(extent, width, height, options);
     }
   };
 
