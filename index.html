@@ -7,30 +7,56 @@
   <meta name="theme-color" content="#12161d" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
   <title>Queensland Severe Thunderstorm Mapping</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20260918-arcgis-auth1">
+  <link rel="stylesheet" href="auth.css?v=20260918-arcgis-auth1">
 </head>
 <body>
-  <div class="shell">
+  <main id="loginGate" class="auth-page" hidden>
+    <section class="auth-card" aria-labelledby="authTitle">
+      <div class="product-kicker">Secure mapping access</div>
+      <h1 id="authTitle">Connect to ArcGIS</h1>
+      <p class="auth-intro">Enter your ArcGIS Online organisation prefix to continue. Authentication is handled by that organisation's normal ArcGIS/SSO sign-in.</p>
+
+      <form id="arcgisLoginForm" class="auth-form" autocomplete="off">
+        <label for="orgPrefix">ArcGIS organisation</label>
+        <div class="org-input-row">
+          <input id="orgPrefix" name="orgPrefix" inputmode="url" spellcheck="false" placeholder="organisation-prefix" required>
+          <span>.maps.arcgis.com</span>
+        </div>
+        <button id="arcgisLoginButton" class="primary auth-submit" type="submit">Continue with ArcGIS</button>
+      </form>
+
+      <div id="loginStatus" class="auth-status" aria-live="polite" hidden></div>
+
+      <div class="auth-privacy">
+        <strong>Privacy</strong>
+        <p>The organisation prefix is entered at runtime and is not built into this site. Authentication is handled by ArcGIS in the browser. Selected layer configuration is saved only in this browser.</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="appShell" class="shell" hidden>
     <header class="topbar">
       <div class="title-block">
         <div class="product-kicker">Queensland operational mapping</div>
         <h1>Severe Thunderstorm Mapping</h1>
-        <p>Generate current severe thunderstorm warning maps with unplanned power outages, local government boundaries and rain radar.</p>
+        <p>Configure authenticated ArcGIS warning and radar sources while retaining the established public Queensland infrastructure feeds and current map workflow.</p>
       </div>
 
-      <div class="status-strip" aria-label="Current generation summary">
-        <span class="pill">
-          <span>Warnings</span>
-          <strong id="warningCount">—</strong>
-        </span>
-        <span class="pill">
-          <span>Generated</span>
-          <strong id="generatedAt">—</strong>
-        </span>
-        <span class="pill">
-          <span>Mode</span>
-          <strong id="mode">—</strong>
-        </span>
+      <div class="topbar-side">
+        <div class="status-strip" aria-label="Current generation summary">
+          <span class="pill"><span>Warnings</span><strong id="warningCount">—</strong></span>
+          <span class="pill"><span>Generated</span><strong id="generatedAt">—</strong></span>
+          <span class="pill"><span>Mode</span><strong id="mode">—</strong></span>
+        </div>
+        <div class="arcgis-account" aria-label="ArcGIS account">
+          <span class="account-dot" aria-hidden="true"></span>
+          <span>
+            <strong id="arcgisAccountName">ArcGIS user</strong>
+            <small id="arcgisAccountOrg"></small>
+          </span>
+          <button id="arcgisSignOut" class="text-button" type="button">Sign out</button>
+        </div>
       </div>
     </header>
 
@@ -45,6 +71,41 @@
     </div>
 
     <main>
+      <section class="panel arcgis-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>Authenticated ArcGIS sources</h2>
+            <p>Choose the warning and radar layer/service items available to your signed-in ArcGIS account. Selections are stored only in this browser.</p>
+          </div>
+          <div class="panel-scope"><span class="mini-chip auth-chip">Authenticated</span></div>
+        </div>
+        <div class="panel-body arcgis-source-grid">
+          <article class="arcgis-source-card">
+            <div>
+              <span class="source-role">Warning layer</span>
+              <strong id="warningLayerSelection" class="selected-layer">Not selected</strong>
+              <p>Feature/service item to use for current severe-thunderstorm warning geometry.</p>
+            </div>
+            <div class="source-actions">
+              <button id="chooseWarningLayer" class="primary" type="button">Choose layer</button>
+              <button id="clearWarningLayer" type="button" disabled>Clear</button>
+            </div>
+          </article>
+
+          <article class="arcgis-source-card">
+            <div>
+              <span class="source-role">Radar layer</span>
+              <strong id="radarLayerSelection" class="selected-layer">Not selected</strong>
+              <p>Authenticated image/map/service item to use for the radar product.</p>
+            </div>
+            <div class="source-actions">
+              <button id="chooseRadarLayer" class="primary" type="button">Choose layer</button>
+              <button id="clearRadarLayer" type="button" disabled>Clear</button>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section id="statusCard" class="scope-banner" aria-live="polite">
         <div class="scope-copy">
           <strong id="statusTitle">Checking latest generation…</strong>
@@ -57,11 +118,9 @@
         <div class="panel-header">
           <div class="panel-title">
             <h2>Latest maps</h2>
-            <p>Generated products for the current Queensland severe thunderstorm warning set.</p>
+            <p>The established published products remain available while authenticated client-side generation is introduced.</p>
           </div>
-          <div class="panel-scope">
-            <span class="mini-chip">PNG output</span>
-          </div>
+          <div class="panel-scope"><span class="mini-chip">PNG output</span></div>
         </div>
         <div class="panel-body">
           <div id="maps" class="map-grid"></div>
@@ -73,25 +132,38 @@
         <div class="panel-header">
           <div class="panel-title">
             <h2>Data feeds</h2>
-            <p>Health of the sources used for warning geometry, outages, local government boundaries and radar.</p>
+            <p>Health of the sources used by the currently published generation.</p>
           </div>
-          <div class="panel-scope">
-            <span class="mini-chip">Source health</span>
-          </div>
+          <div class="panel-scope"><span class="mini-chip">Source health</span></div>
         </div>
-        <div class="panel-body">
-          <div id="sources" class="source-grid"></div>
-        </div>
+        <div class="panel-body"><div id="sources" class="source-grid"></div></div>
       </section>
     </main>
 
     <footer class="footer">
       <span>Always refer to the Bureau of Meteorology warning itself for official warning information.</span>
-      <span>Weather radar data by <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a>. Source health and generation time are shown above.</span>
+      <span>Public fallback radar data by <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a>. Private ArcGIS layer selections are not committed to this site.</span>
     </footer>
   </div>
 
-  <script src="config.js"></script>
-  <script src="app.js"></script>
+  <div id="layerPickerBackdrop" class="modal-backdrop" hidden>
+    <section class="layer-picker" role="dialog" aria-modal="true" aria-labelledby="layerPickerTitle">
+      <div class="layer-picker-head">
+        <div><span class="source-role">ArcGIS content</span><h2 id="layerPickerTitle">Choose layer</h2></div>
+        <button id="layerPickerClose" class="modal-close" type="button" aria-label="Close layer picker">Close</button>
+      </div>
+      <form id="layerSearchForm" class="layer-search-form">
+        <input id="layerSearchQuery" type="search" placeholder="Search title, tags or owner; leave blank to browse recent layers" autocomplete="off">
+        <button class="primary" type="submit">Search</button>
+      </form>
+      <p id="layerSearchStatus" class="layer-search-status">Search ArcGIS content available to your signed-in account.</p>
+      <div id="layerSearchResults" class="layer-results"></div>
+    </section>
+  </div>
+
+  <script src="config.js?v=20260918-arcgis-auth1"></script>
+  <script type="module" src="https://js.arcgis.com/5.1/"></script>
+  <script type="module" src="arcgis-auth.js?v=20260918-arcgis-auth1"></script>
+  <script src="app.js?v=20260918-arcgis-auth1"></script>
 </body>
 </html>
