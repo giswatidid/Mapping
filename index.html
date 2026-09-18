@@ -7,8 +7,8 @@
   <meta name="theme-color" content="#12161d" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
   <title>Queensland Severe Thunderstorm Mapping</title>
-  <link rel="stylesheet" href="styles.css?v=20260918-browser5">
-  <link rel="stylesheet" href="auth.css?v=20260918-browser5">
+  <link rel="stylesheet" href="styles.css?v=20260918-browser6">
+  <link rel="stylesheet" href="auth.css?v=20260918-browser6">
 </head>
 <body>
   <main id="loginGate" class="auth-page" hidden>
@@ -63,6 +63,10 @@
     <div class="nav-row">
       <div class="actions">
         <button id="generateButton" class="primary" type="button" disabled>Generate maps</button>
+        <label class="tracking-toggle" for="cellTrackingToggle" title="Adds storm cell, UTC time and storm direction overlays from the authenticated warning WMS. Warning extent detection still uses only the severe thunderstorm warning layer.">
+          <input id="cellTrackingToggle" type="checkbox">
+          <span>Include thunderstorm cell tracking</span>
+        </label>
       </div>
       <div class="utility-actions">
         <button id="themeToggleBtn" class="control-btn" type="button" aria-pressed="false">Night mode</button>
@@ -142,10 +146,10 @@
     </footer>
   </div>
 
-  <script src="config.js?v=20260918-browser5"></script>
+  <script src="config.js?v=20260918-browser6"></script>
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
-  <script type="module" src="arcgis-auth.js?v=20260918-browser5"></script>
-  <script src="app.js?v=20260918-browser5"></script>
-  <script src="renderer.js?v=20260918-browser5"></script>
+  <script type="module" src="arcgis-auth.js?v=20260918-browser6"></script>
+  <script src="app.js?v=20260918-browser6"></script>
+  <script src="renderer.js?v=20260918-browser6"></script>
 </body>
 </html>
