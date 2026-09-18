@@ -18,7 +18,8 @@ window.MAPPING_CONFIG = {
       radar: {
         itemTitle: "BoM Radar WMS APIM PRD",
         itemType: "WMS",
-        sublayerTitle: "Radar Rain Rate | Australia | raster"
+        sublayerTitle: "Radar Rain Rate | Australia | raster",
+        wmsLayerName: "IDR00010"
       }
     }
   },
