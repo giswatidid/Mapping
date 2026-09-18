@@ -528,19 +528,34 @@ async function createConfiguredWmsLayer(role, sourceOverride = null) {
     throw new Error("The standard " + role + " WMS has not been resolved.");
   }
 
-  const { portalItem, data } = await getPortalItemAndData(source);
+  const { portalItem, data, serviceUrl } = await getPortalItemAndData(source);
   const metadata = findSublayerMetadata(data, spec.sublayerTitle);
+  const requestConfig = buildWmsRequestConfig(serviceUrl, data);
+  const configuredPrimaryName = String(
+    spec.wmsLayerName ||
+    spec.wmsLayerNames?.[spec.sublayerTitle] ||
+    metadata?.name ||
+    spec.sublayerTitle
+  ).trim();
 
   // Prefer normal browser WMS loading when the upstream service supports CORS.
+  // Use the same registered GetMap URL and custom parameters as the print path
+  // so verification and operational rendering cannot diverge.
   try {
     const layer = new WMSLayer({
       portalItem,
+      url: requestConfig?.url || serviceUrl,
       title: spec.itemTitle,
-      sublayers: metadata?.name ? [{ name: metadata.name }] : [{ name: spec.sublayerTitle }]
+      customParameters: requestConfig?.customParameters || {},
+      customLayerParameters: requestConfig?.customLayerParameters || {},
+      sublayers: [{ name: configuredPrimaryName }]
     });
     await layer.load();
 
-    const sublayer = findTargetSublayer(layer, spec.sublayerTitle) || layer.sublayers?.at?.(0);
+    const sublayer =
+      findTargetSublayer(layer, spec.sublayerTitle) ||
+      layer.findSublayerByName?.(configuredPrimaryName) ||
+      layer.sublayers?.at?.(0);
     if (!sublayer) throw new Error("Required operational sublayer was not available.");
 
     layer.sublayers = [sublayer];
