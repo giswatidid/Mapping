@@ -9,11 +9,18 @@ window.MAPPING_CONFIG = {
         itemTitle: "BoM Severe Weather Warning WMS APIM PRD",
         itemType: "WMS",
         sublayerTitle: "Severe Thunderstorm Warning | Australia",
+        wmsLayerName: "IDZ20006",
         trackingSublayerTitles: [
           "Severe Thunderstorm Warning Storm Direction | Australia",
           "Severe Thunderstorm Warning Storm Cell Time UTC | Australia",
           "Severe Thunderstorm Warning Storm Cell | Australia"
-        ]
+        ],
+        wmsLayerNames: {
+          "Severe Thunderstorm Warning | Australia": "IDZ20006",
+          "Severe Thunderstorm Warning Storm Direction | Australia": "IDZ20007_track",
+          "Severe Thunderstorm Warning Storm Cell Time UTC | Australia": "IDZ20007_time",
+          "Severe Thunderstorm Warning Storm Cell | Australia": "IDZ20007"
+        }
       },
       radar: {
         itemTitle: "BoM Radar WMS APIM PRD",
