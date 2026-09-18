@@ -987,12 +987,14 @@
     rctx.save();
     rctx.translate(radarProduct.mapX, radarProduct.mapY);
     drawContext(rctx, mapWidth, mapHeight, extent, publicData, active);
-    rctx.drawImage(warningImage, 0, 0, mapWidth, mapHeight);
-    rctx.globalAlpha = 0.84;
-    rctx.drawImage(radarImage, 0, 0, mapWidth, mapHeight);
-    rctx.globalAlpha = 0.55;
+
+    // Warning fill/context sits below radar. Keep the radar at its native/full
+    // opacity so light rain-rate returns remain visible. Do not redraw the
+    // full warning WMS over the radar because that can wash out weak echoes.
     rctx.drawImage(warningImage, 0, 0, mapWidth, mapHeight);
     rctx.globalAlpha = 1;
+    rctx.drawImage(radarImage, 0, 0, mapWidth, mapHeight);
+
     if (trackingImage) {
       rctx.drawImage(trackingImage, 0, 0, mapWidth, mapHeight);
     }
