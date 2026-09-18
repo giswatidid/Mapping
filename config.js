@@ -12,13 +12,11 @@ window.MAPPING_CONFIG = {
         wmsLayerName: "IDZ20006",
         trackingSublayerTitles: [
           "Severe Thunderstorm Warning Storm Direction | Australia",
-          "Severe Thunderstorm Warning Storm Cell Time UTC | Australia",
           "Severe Thunderstorm Warning Storm Cell | Australia"
         ],
         wmsLayerNames: {
           "Severe Thunderstorm Warning | Australia": "IDZ20006",
           "Severe Thunderstorm Warning Storm Direction | Australia": "IDZ20007_track",
-          "Severe Thunderstorm Warning Storm Cell Time UTC | Australia": "IDZ20007_time",
           "Severe Thunderstorm Warning Storm Cell | Australia": "IDZ20007"
         }
       },
