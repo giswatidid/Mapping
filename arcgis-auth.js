@@ -27,7 +27,7 @@ let OAuthInfo;
 let Portal;
 let PortalItem;
 let WMSLayer;
-let esriConfig;
+let esriRequest;
 let portal;
 let portalUrl;
 
@@ -95,6 +95,17 @@ function sourceUi(role) {
   return role === "warning"
     ? { title: ui.warning, state: ui.warningState, detail: ui.warningDetail }
     : { title: ui.radar, state: ui.radarState, detail: ui.radarDetail };
+}
+
+function safeMessage(error, fallback="Source request failed.") {
+  const raw = String(error?.message || error || fallback);
+  if (/403|forbidden/i.test(raw)) return "The authenticated WMS item was found, but direct browser access is not permitted by the service.";
+  if (/failed to fetch|cors|network/i.test(raw)) return "The authenticated WMS item was found, but the service does not permit direct requests from this web origin.";
+  if (/not found/i.test(raw)) return raw.replace(/https?:\/\/\S+/gi, "[private service]");
+  return raw
+    .replace(/https?:\/\/\S+/gi, "[private service]")
+    .replace(/([?&](?:subscription[-_]?key|token|key|apikey|api_key)=)[^&\s]+/gi, "$1[redacted]")
+    .slice(0, 320);
 }
 
 function renderSourceState(role, state, message) {
@@ -222,6 +233,108 @@ function findTargetSublayer(layer, wantedTitle) {
   }) || null;
 }
 
+function findSublayerMetadata(value, wantedTitle, seen=new Set()) {
+  if (!value || typeof value !== "object" || seen.has(value)) return null;
+  seen.add(value);
+
+  const wanted = normalise(wantedTitle);
+  const title = normalise(value.title);
+  const name = normalise(value.name);
+
+  if ((title === wanted || name === wanted) && value.name) {
+    return {
+      name: String(value.name),
+      title: String(value.title || wantedTitle)
+    };
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const found = findSublayerMetadata(entry, wantedTitle, seen);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  for (const child of Object.values(value)) {
+    const found = findSublayerMetadata(child, wantedTitle, seen);
+    if (found) return found;
+  }
+  return null;
+}
+
+async function getPortalItemAndData(source) {
+  const portalItem = new PortalItem({ id: source.itemId, portal });
+  await portalItem.load();
+
+  let data = null;
+  try {
+    data = await portalItem.fetchData();
+  } catch {}
+
+  return { portalItem, data };
+}
+
+async function testPrintServiceWms(role, source, metadata) {
+  const printTask = portal.helperServices?.printTask?.url;
+  if (!printTask) throw new Error("This ArcGIS organisation does not advertise a print service.");
+
+  const spec = cfg.standardSources?.[role];
+  const sublayerName = metadata?.name || spec.sublayerTitle;
+  const taskUrl = String(printTask).replace(/\/$/, "") + "/execute";
+
+  const webMap = {
+    mapOptions: {
+      extent: {
+        xmin: 137.8,
+        ymin: -29.3,
+        xmax: 154.2,
+        ymax: -9.0,
+        spatialReference: { wkid: 4326 }
+      }
+    },
+    operationalLayers: [{
+      url: source.serviceUrl,
+      title: spec.itemTitle,
+      type: "wms",
+      opacity: 1,
+      version: "1.3.0",
+      format: "png32",
+      transparentBackground: true,
+      layers: [{ name: sublayerName }],
+      visibleLayers: [sublayerName]
+    }],
+    exportOptions: {
+      outputSize: [420, 520],
+      dpi: 96
+    }
+  };
+
+  const response = await esriRequest(taskUrl, {
+    method: "post",
+    responseType: "json",
+    authMode: "auto",
+    query: {
+      Web_Map_as_JSON: JSON.stringify(webMap),
+      Format: "PNG32",
+      Layout_Template: "MAP_ONLY",
+      f: "json"
+    }
+  });
+
+  const payload = response?.data || {};
+  if (payload.error) throw new Error(payload.error.message || "ArcGIS print service rejected the WMS.");
+  const output = (payload.results || []).find((entry) => entry.paramName === "Output_File")?.value?.url;
+  if (!output) throw new Error("ArcGIS print service returned no map image.");
+
+  return {
+    mode: "arcgis-print-service",
+    sublayerName,
+    sublayerTitle: metadata?.title || spec.sublayerTitle,
+    testOutput: output
+  };
+}
+
 async function createConfiguredWmsLayer(role, sourceOverride = null) {
   const spec = cfg.standardSources?.[role];
   const source = sourceOverride || runtimeSources.get(role)?.source || loadSavedSource(role);
@@ -230,45 +343,42 @@ async function createConfiguredWmsLayer(role, sourceOverride = null) {
     throw new Error("The standard " + role + " WMS has not been resolved.");
   }
 
-  const portalItem = new PortalItem({
-    id: source.itemId,
-    portal
-  });
+  const { portalItem, data } = await getPortalItemAndData(source);
+  const metadata = findSublayerMetadata(data, spec.sublayerTitle);
 
-  // Load the private portal item first through the authenticated ArcGIS session.
-  // WMS capabilities/image requests may then fall back through the organisation's
-  // own sharing proxy when the upstream WMS does not permit github.io via CORS.
-  await portalItem.load();
+  // Prefer normal browser WMS loading when the upstream service supports CORS.
+  try {
+    const layer = new WMSLayer({
+      portalItem,
+      title: spec.itemTitle,
+      sublayers: metadata?.name ? [{ name: metadata.name }] : [{ name: spec.sublayerTitle }]
+    });
+    await layer.load();
 
-  const layer = new WMSLayer({
-    portalItem,
-    title: spec.itemTitle
-  });
+    const sublayer = findTargetSublayer(layer, spec.sublayerTitle) || layer.sublayers?.at?.(0);
+    if (!sublayer) throw new Error("Required operational sublayer was not available.");
 
-  await layer.load();
-
-  const sublayer = findTargetSublayer(layer, spec.sublayerTitle);
-  if (!sublayer) {
-    const available = (layer.allSublayers || [])
-      .map((entry) => entry.title || entry.name)
-      .filter(Boolean)
-      .slice(0, 12)
-      .join(", ");
-
-    throw new Error(
-      'Required sublayer "' + spec.sublayerTitle + '" was not found in "' + spec.itemTitle + '".'
-      + (available ? " Available examples: " + available : "")
-    );
+    layer.sublayers = [sublayer];
+    return {
+      mode: "browser-wms",
+      layer,
+      sublayerName: sublayer.name,
+      sublayerTitle: sublayer.title || spec.sublayerTitle
+    };
+  } catch (browserError) {
+    // Pure client-side WMS rendering is impossible when the upstream WMS does
+    // not allow this origin. Use the organisation's configured ArcGIS print
+    // service as the authenticated rendering fallback.
+    try {
+      return await testPrintServiceWms(role, source, metadata);
+    } catch (printError) {
+      const error = new Error(
+        "The WMS item is accessible, but neither direct browser rendering nor the ArcGIS print-service fallback succeeded."
+      );
+      error.cause = { browserError, printError };
+      throw error;
+    }
   }
-
-  // Restrict the WMS to only the operational sublayer required by this app.
-  layer.sublayers = [sublayer];
-
-  return {
-    layer,
-    sublayerName: sublayer.name,
-    sublayerTitle: sublayer.title || spec.sublayerTitle
-  };
 }
 
 async function resolveStandardSource(role) {
@@ -283,6 +393,7 @@ async function resolveStandardSource(role) {
     itemTitle: spec.itemTitle,
     sublayerTitle: spec.sublayerTitle,
     sublayerName: verified.sublayerName,
+    renderMode: verified.mode,
     verifiedAt: new Date().toISOString()
   };
 
@@ -292,7 +403,9 @@ async function resolveStandardSource(role) {
   renderSourceState(
     role,
     "connected",
-    "Sublayer: " + spec.sublayerTitle
+    "Sublayer: " + spec.sublayerTitle + " · " + (
+      verified.mode === "browser-wms" ? "direct browser WMS" : "ArcGIS print-service rendering"
+    )
   );
 
   return saved;
@@ -317,8 +430,9 @@ async function resolveAllStandardSources(clearCached = false) {
       results[role] = { ok: true, source: await resolveStandardSource(role) };
     } catch (error) {
       runtimeSources.delete(role);
-      renderSourceState(role, "error", String(error?.message || error));
-      results[role] = { ok: false, error: String(error?.message || error) };
+      const message = safeMessage(error, "The standard authenticated WMS could not be verified.");
+      renderSourceState(role, "error", message);
+      results[role] = { ok: false, error: message };
     }
   }
 
@@ -340,14 +454,6 @@ async function resolveAllStandardSources(clearCached = false) {
 
 function configure(prefixValue) {
   portalUrl = "https://" + prefixValue + ".maps.arcgis.com";
-
-  // Esri requires a proxy when a cross-domain WMS server does not provide CORS.
-  // Use the signed-in organisation's own sharing proxy; no private WMS request
-  // is sent through GitHub, Cloudflare, or another application-controlled server.
-  if (esriConfig?.request) {
-    esriConfig.request.proxyUrl = portalUrl + "/sharing/proxy";
-    esriConfig.request.timeout = 90000;
-  }
 
   esriId.registerOAuthInfos([
     new OAuthInfo({
@@ -415,13 +521,13 @@ async function startLogin(value) {
 }
 
 async function init() {
-  [OAuthInfo, esriId, Portal, PortalItem, WMSLayer, esriConfig] = await $arcgis.import([
+  [OAuthInfo, esriId, Portal, PortalItem, WMSLayer, esriRequest] = await $arcgis.import([
     "@arcgis/core/identity/OAuthInfo.js",
     "@arcgis/core/identity/IdentityManager.js",
     "@arcgis/core/portal/Portal.js",
     "@arcgis/core/portal/PortalItem.js",
     "@arcgis/core/layers/WMSLayer.js",
-    "@arcgis/core/config.js"
+    "@arcgis/core/request.js"
   ]);
 
   ui.form?.addEventListener("submit", (event) => {
