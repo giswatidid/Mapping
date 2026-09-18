@@ -3,6 +3,8 @@
   const publicSources = cfg.publicSources || {};
   const renderCfg = cfg.rendering || {};
   const QLD_EXTENT = renderCfg.qldExtent || [137.7, -29.3, 154.2, -9.0];
+  const OUTPUT_SR = Number(renderCfg.outputSpatialReference || 3857);
+  const WEB_MERCATOR_HALF_WORLD = 20037508.342789244;
   const generateButton = document.querySelector("#generateButton");
   const mapsEl = document.querySelector("#maps");
   const emptyEl = document.querySelector("#emptyState");
@@ -190,8 +192,27 @@
     };
   }
 
+  function lonLatToWebMercator(coord) {
+    const lon = Number(coord?.[0]);
+    const lat = clamp(Number(coord?.[1]), -85.05112878, 85.05112878);
+    const x = lon * WEB_MERCATOR_HALF_WORLD / 180;
+    const y = Math.log(Math.tan((90 + lat) * Math.PI / 360)) / (Math.PI / 180);
+    return [x, y * WEB_MERCATOR_HALF_WORLD / 180];
+  }
+
+  function geographicExtentToWebMercator(extent) {
+    const southwest = lonLatToWebMercator([extent[0], extent[1]]);
+    const northeast = lonLatToWebMercator([extent[2], extent[3]]);
+    return [southwest[0], southwest[1], northeast[0], northeast[1]];
+  }
+
   function extentAspect(extent) {
     const [xmin, ymin, xmax, ymax] = extent;
+    // Projected output extents are already in linear metres.
+    if ([xmin, ymin, xmax, ymax].some((value) => Math.abs(value) > 1000)) {
+      return Math.max(0.01, xmax - xmin) / Math.max(0.01, ymax - ymin);
+    }
+
     const midLat = ((ymin + ymax) / 2) * Math.PI / 180;
     const physicalWidth = Math.max(0.01, (xmax - xmin) * Math.cos(midLat));
     const physicalHeight = Math.max(0.01, ymax - ymin);
@@ -404,10 +425,13 @@
 
   function makeTransform(extent, width, height) {
     const [xmin, ymin, xmax, ymax] = extent;
-    return ([lon, lat]) => [
-      ((lon - xmin) / (xmax - xmin)) * width,
-      ((ymax - lat) / (ymax - ymin)) * height
-    ];
+    return (coord) => {
+      const [x, y] = lonLatToWebMercator(coord);
+      return [
+        ((x - xmin) / (xmax - xmin)) * width,
+        ((ymax - y) / (ymax - ymin)) * height
+      ];
+    };
   }
 
   function traceLine(ctx, coords, project) {
@@ -942,34 +966,44 @@
   }
 
   async function buildProducts(extent, active, publicData, publicWarnings) {
-    const [mapWidth, mapHeight] = mapSize(extent);
     const arcgis = window.MAPPING_ARCGIS;
+    const requestedRenderExtent = geographicExtentToWebMercator(extent);
+    const [mapWidth, mapHeight] = mapSize(requestedRenderExtent);
 
     const trackingEnabled = Boolean(cellTrackingToggle?.checked);
     const optionalTrackingTitles = trackingEnabled ? trackingTitles() : [];
 
-    const renderJobs = [
-      arcgis.renderWmsImage("warning", extent, mapWidth, mapHeight),
-      arcgis.renderWmsImage("radar", extent, mapWidth, mapHeight)
-    ];
+    // ArcGIS Topographic is a Web Mercator basemap. Render it first and use
+    // the exact extent actually displayed by MapView for every other layer.
+    const basemapResult = arcgis.renderBasemapImage
+      ? await arcgis.renderBasemapImage(
+          requestedRenderExtent,
+          mapWidth,
+          mapHeight,
+          { spatialReference: OUTPUT_SR }
+        ).catch(() => null)
+      : null;
 
-    const basemapPromise = arcgis.renderBasemapImage
-      ? arcgis.renderBasemapImage(extent, mapWidth, mapHeight)
-          .catch(() => null)
-      : Promise.resolve(null);
+    const renderExtent = Array.isArray(basemapResult?.extent)
+      ? basemapResult.extent
+      : requestedRenderExtent;
+
+    const commonRenderOptions = { spatialReference: OUTPUT_SR };
+    const renderJobs = [
+      arcgis.renderWmsImage("warning", renderExtent, mapWidth, mapHeight, commonRenderOptions),
+      arcgis.renderWmsImage("radar", renderExtent, mapWidth, mapHeight, commonRenderOptions)
+    ];
 
     if (trackingEnabled && optionalTrackingTitles.length) {
       renderJobs.push(
-        arcgis.renderWmsImage("warning", extent, mapWidth, mapHeight, {
+        arcgis.renderWmsImage("warning", renderExtent, mapWidth, mapHeight, {
+          ...commonRenderOptions,
           sublayerTitles: optionalTrackingTitles
         })
       );
     }
 
-    const [renderResults, basemapResult] = await Promise.all([
-      Promise.all(renderJobs),
-      basemapPromise
-    ]);
+    const renderResults = await Promise.all(renderJobs);
     const warningResult = renderResults[0];
     const radarResult = renderResults[1];
     const trackingResult = renderResults[2] || null;
@@ -1011,7 +1045,7 @@
     const rctx = radarProduct.ctx;
     rctx.save();
     rctx.translate(radarProduct.mapX, radarProduct.mapY);
-    drawContext(rctx, mapWidth, mapHeight, extent, publicData, active, basemapImage);
+    drawContext(rctx, mapWidth, mapHeight, renderExtent, publicData, active, basemapImage);
 
     // Warning fill/context sits below radar. Keep the radar at its native/full
     // opacity so light rain-rate returns remain visible. Do not redraw the
@@ -1044,7 +1078,7 @@
     const ictx = infraProduct.ctx;
     ictx.save();
     ictx.translate(infraProduct.mapX, infraProduct.mapY);
-    const project = drawContext(ictx, mapWidth, mapHeight, extent, publicData, active, basemapImage);
+    const project = drawContext(ictx, mapWidth, mapHeight, renderExtent, publicData, active, basemapImage);
     ictx.drawImage(warningImage, 0, 0, mapWidth, mapHeight);
     if (trackingImage) {
       ictx.drawImage(trackingImage, 0, 0, mapWidth, mapHeight);
