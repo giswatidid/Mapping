@@ -55,7 +55,7 @@ function clearLayer(name) {
 function openPicker(name) {
   target = name;
   ui.pickerTitle.textContent = name === "warning" ? "Choose warning layer" : "Choose radar layer";
-  ui.scope.value = "mine";
+  ui.scope.value = "shared";
   ui.search.value = "";
   ui.results.innerHTML = "";
   ui.backdrop.hidden = false;
@@ -73,29 +73,86 @@ function selectItem(item) {
 
 function showResults(items, scope) {
   ui.results.innerHTML = "";
-  const scopeLabel = scope === "mine" ? "My Content" : "all accessible content";
+  const scopeLabel = scope === "shared"
+    ? "content shared with you"
+    : (scope === "mine" ? "My Content" : "all accessible content");
   ui.searchStatus.textContent = items.length
     ? items.length + " layer/service item" + (items.length===1 ? "" : "s") + " found in " + scopeLabel + "."
     : "No matching layer/service items found in " + scopeLabel + ".";
   items.forEach((item) => {
     const b = document.createElement("button"); b.type="button"; b.className="layer-result";
     const strong=document.createElement("strong"); strong.textContent=item.title || item.id;
-    const meta=document.createElement("span"); meta.textContent=[item.type,item.owner ? "owner: " + item.owner : null,item.access].filter(Boolean).join(" · ");
+    const meta=document.createElement("span");
+    meta.textContent=[
+      item.type,
+      item.owner ? "owner: " + item.owner : null,
+      item.groupTitles?.length ? "shared via: " + item.groupTitles.join(", ") : null,
+      item.access
+    ].filter(Boolean).join(" · ");
     b.append(strong,meta); b.addEventListener("click",()=>selectItem(item)); ui.results.appendChild(b);
   });
 }
 
+function normaliseItem(item, groupTitles=[]) {
+  return {
+    id:item.id,
+    title:item.title || item.id,
+    type:item.type || null,
+    url:item.url || null,
+    owner:item.owner || null,
+    access:item.access || null,
+    modified:item.modified || null,
+    groupTitles:[...new Set(groupTitles.filter(Boolean))]
+  };
+}
+
 async function searchLayers(text, scope) {
   const types='(type:"Feature Service" OR type:"Map Service" OR type:"Image Service" OR type:"WMS" OR type:"WMTS")';
-  const parts = [types];
+  const searchText = text.trim();
+  const query = searchText ? "(" + searchText + ") AND " + types : types;
 
+  if (scope === "shared") {
+    const groups = await portal.user?.fetchGroups();
+    if (!groups?.length) return [];
+
+    const settled = await Promise.allSettled(groups.map(async (group) => {
+      const result = await group.queryItems({
+        query,
+        num:100,
+        sortField:"modified",
+        sortOrder:"desc"
+      });
+      return { group, items:result.results || [] };
+    }));
+
+    const byId = new Map();
+    settled.forEach((entry) => {
+      if (entry.status !== "fulfilled") return;
+      const groupTitle = entry.value.group?.title || "ArcGIS group";
+      entry.value.items.forEach((item) => {
+        const existing = byId.get(item.id);
+        if (existing) {
+          existing.groupTitles = [...new Set([...existing.groupTitles, groupTitle])];
+        } else {
+          byId.set(item.id, normaliseItem(item, [groupTitle]));
+        }
+      });
+    });
+
+    return [...byId.values()].sort((a,b) => {
+      const am = a.modified ? new Date(a.modified).getTime() : 0;
+      const bm = b.modified ? new Date(b.modified).getTime() : 0;
+      return bm - am;
+    });
+  }
+
+  const parts = [types];
   if (scope === "mine") {
     const username = portal.user?.username;
     if (!username) throw new Error("The signed-in ArcGIS username is unavailable.");
     parts.push('owner:"' + String(username).replaceAll('"', '\\"') + '"');
   }
-
-  if (text.trim()) parts.unshift("(" + text.trim() + ")");
+  if (searchText) parts.unshift("(" + searchText + ")");
 
   const result=await portal.queryItems({
     query:parts.join(" AND "),
@@ -103,14 +160,16 @@ async function searchLayers(text, scope) {
     sortField:"modified",
     sortOrder:"desc"
   });
-  return result.results || [];
+  return (result.results || []).map((item) => normaliseItem(item));
 }
 
 async function runLayerSearch() {
-  const scope = ui.scope.value === "accessible" ? "accessible" : "mine";
-  ui.searchStatus.textContent = scope === "mine"
-    ? "Loading layer/service items from My Content…"
-    : "Searching all ArcGIS content accessible to your account…";
+  const scope = ["shared","mine","accessible"].includes(ui.scope.value) ? ui.scope.value : "shared";
+  ui.searchStatus.textContent = scope === "shared"
+    ? "Loading layer/service items shared through your ArcGIS groups…"
+    : (scope === "mine"
+      ? "Loading layer/service items from My Content…"
+      : "Searching all ArcGIS content accessible to your account…");
   ui.results.innerHTML = "";
 
   try {

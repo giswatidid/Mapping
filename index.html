@@ -7,8 +7,8 @@
   <meta name="theme-color" content="#12161d" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
   <title>Queensland Severe Thunderstorm Mapping</title>
-  <link rel="stylesheet" href="styles.css?v=20260918-arcgis-auth2">
-  <link rel="stylesheet" href="auth.css?v=20260918-arcgis-auth2">
+  <link rel="stylesheet" href="styles.css?v=20260918-arcgis-auth3">
+  <link rel="stylesheet" href="auth.css?v=20260918-arcgis-auth3">
 </head>
 <body>
   <main id="loginGate" class="auth-page" hidden>
@@ -154,20 +154,21 @@
       </div>
       <form id="layerSearchForm" class="layer-search-form">
         <select id="layerSearchScope" aria-label="ArcGIS content scope">
-          <option value="mine" selected>My Content</option>
+          <option value="shared" selected>Shared with me</option>
+          <option value="mine">My Content</option>
           <option value="accessible">All accessible</option>
         </select>
         <input id="layerSearchQuery" type="search" placeholder="Search layer/service items" autocomplete="off">
         <button class="primary" type="submit">Search</button>
       </form>
-      <p id="layerSearchStatus" class="layer-search-status">Loading layer/service items from My Content…</p>
+      <p id="layerSearchStatus" class="layer-search-status">Loading layer/service items shared through your ArcGIS groups…</p>
       <div id="layerSearchResults" class="layer-results"></div>
     </section>
   </div>
 
-  <script src="config.js?v=20260918-arcgis-auth2"></script>
+  <script src="config.js?v=20260918-arcgis-auth3"></script>
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
-  <script type="module" src="arcgis-auth.js?v=20260918-arcgis-auth2"></script>
-  <script src="app.js?v=20260918-arcgis-auth2"></script>
+  <script type="module" src="arcgis-auth.js?v=20260918-arcgis-auth3"></script>
+  <script src="app.js?v=20260918-arcgis-auth3"></script>
 </body>
 </html>
