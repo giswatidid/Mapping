@@ -291,6 +291,17 @@ async function renderWmsPrintImage(role, extent, width, height, sourceOverride=n
     : [spec.sublayerTitle];
 
   const resolvedSublayers = requestedTitles.map((title) => {
+    const configuredByTitle = spec.wmsLayerNames && typeof spec.wmsLayerNames === "object"
+      ? String(spec.wmsLayerNames[title] || "").trim()
+      : "";
+
+    if (configuredByTitle) {
+      return {
+        name: configuredByTitle,
+        title
+      };
+    }
+
     if (normalise(title) === normalise(spec.sublayerTitle)) {
       const configuredNativeName = String(spec.wmsLayerName || "").trim();
       if (configuredNativeName || source.sublayerName) {
