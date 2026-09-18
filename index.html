@@ -7,8 +7,8 @@
   <meta name="theme-color" content="#12161d" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
   <title>Queensland Severe Thunderstorm Mapping</title>
-  <link rel="stylesheet" href="styles.css?v=20260918-browser2">
-  <link rel="stylesheet" href="auth.css?v=20260918-browser2">
+  <link rel="stylesheet" href="styles.css?v=20260918-browser3">
+  <link rel="stylesheet" href="auth.css?v=20260918-browser3">
 </head>
 <body>
   <main id="loginGate" class="auth-page" hidden>
@@ -30,7 +30,7 @@
 
       <div class="auth-privacy">
         <strong>Privacy</strong>
-        <p>The organisation prefix is entered at runtime and is not built into this site. Authentication and private WMS requests remain in the signed-in browser session.</p>
+        <p>The organisation prefix is entered at runtime and is not built into this site. Authentication is handled through ArcGIS. Private WMS rendering stays within the authenticated ArcGIS workflow and is not sent to GitHub.</p>
       </div>
     </section>
   </main>
@@ -114,9 +114,9 @@
         <div class="panel-header">
           <div class="panel-title">
             <h2>Map products</h2>
-            <p>Exactly two products are generated in the signed-in browser: Warning + Radar and Warning + Infrastructure Impacts.</p>
+            <p>Exactly two products are generated for the signed-in session: Warning + Radar and Warning + Infrastructure Impacts.</p>
           </div>
-          <div class="panel-scope"><span class="mini-chip">Client-side PNG</span></div>
+          <div class="panel-scope"><span class="mini-chip">Authenticated PNG</span></div>
         </div>
         <div class="panel-body">
           <div id="maps" class="map-grid"></div>
@@ -128,7 +128,7 @@
         <div class="panel-header">
           <div class="panel-title">
             <h2>Data feeds</h2>
-            <p>Authenticated Bureau weather feeds remain client-side. Power outages and road conditions continue to use their public Queensland sources.</p>
+            <p>Authenticated Bureau weather feeds remain within the ArcGIS-authenticated workflow. Power outages and road conditions continue to use their public Queensland sources.</p>
           </div>
           <div class="panel-scope"><span class="mini-chip">Browser session</span></div>
         </div>
@@ -138,13 +138,13 @@
 
     <footer class="footer">
       <span>Always refer to the Bureau of Meteorology warning itself for official warning information.</span>
-      <span>Authenticated ArcGIS service details and rendered private weather data are not committed to this repository.</span>
+      <span>Authenticated ArcGIS service details and rendered private weather data are not committed to this repository or GitHub Actions.</span>
     </footer>
   </div>
 
-  <script src="config.js?v=20260918-browser2"></script>
+  <script src="config.js?v=20260918-browser3"></script>
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
-  <script type="module" src="arcgis-auth.js?v=20260918-browser2"></script>
-  <script src="app.js?v=20260918-browser2"></script>
+  <script type="module" src="arcgis-auth.js?v=20260918-browser3"></script>
+  <script src="app.js?v=20260918-browser3"></script>
 </body>
 </html>
