@@ -298,6 +298,9 @@ async function renderWmsPrintImage(role, extent, width, height, sourceOverride=n
         xmax: bounds[2],
         ymax: bounds[3],
         spatialReference: { wkid: 4326 }
+      },
+      background: {
+        color: [255, 255, 255, 0]
       }
     },
     operationalLayers: [{
