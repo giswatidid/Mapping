@@ -58,7 +58,7 @@ Required sublayer:
 
 The item IDs and service URLs are discovered after authentication and are never hard-coded in the repository.
 
-The application restricts each WMS to the required operational sublayers rather than rendering every layer exposed by the service. The warning WMS can optionally add storm-cell, UTC-time and storm-direction overlays without changing warning-extent detection.
+The application restricts each WMS to the required operational sublayers rather than rendering every layer exposed by the service. The warning WMS can optionally add storm-cell and storm-direction overlays without changing warning-extent detection. The UTC storm-cell time layer is intentionally excluded.
 
 ## Public infrastructure sources
 
