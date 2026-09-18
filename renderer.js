@@ -858,8 +858,33 @@
 
   async function canvasBlob(canvas) {
     return new Promise((resolve, reject) => {
-      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("PNG encoding failed.")), "image/png");
+      canvas.toBlob(
+        (blob) => blob ? resolve(blob) : reject(new Error("JPEG encoding failed.")),
+        "image/jpeg",
+        0.95
+      );
     });
+  }
+
+  function aestDownloadTimestamp(date = new Date()) {
+    const parts = new Intl.DateTimeFormat("en-AU", {
+      timeZone: "Australia/Brisbane",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      hourCycle: "h23"
+    }).formatToParts(date);
+
+    const part = (type) => parts.find((entry) => entry.type === type)?.value || "";
+    return [
+      part("day"),
+      part("month"),
+      part("year"),
+      part("hour") + part("minute")
+    ].join("_");
   }
 
   function revokeOutputs() {
@@ -867,7 +892,7 @@
     outputUrls = [];
   }
 
-  function addMapCard(blob, title, filename, meta) {
+  function addMapCard(blob, title, filenameBase, meta, generatedDate) {
     const url = URL.createObjectURL(blob);
     outputUrls.push(url);
 
@@ -897,8 +922,8 @@
     const download = document.createElement("a");
     download.className = "download";
     download.href = url;
-    download.download = filename;
-    download.textContent = "Download PNG";
+    download.download = filenameBase + "_" + aestDownloadTimestamp(generatedDate) + ".jpg";
+    download.textContent = "Download JPEG";
 
     info.append(copy, download);
     card.append(imageLink, info);
@@ -1049,7 +1074,7 @@
       emptyEl.textContent = "Loading public Queensland context, outage and road-condition data…";
       const { data, warnings } = await loadPublicData(extent, statewide);
 
-      emptyEl.textContent = "Rendering authenticated weather imagery and composing PNG products…";
+      emptyEl.textContent = "Rendering authenticated weather imagery and composing JPEG products…";
       const products = await buildProducts(extent, warning.active, data, warnings);
 
       revokeOutputs();
@@ -1058,14 +1083,16 @@
       addMapCard(
         products.radarBlob,
         warning.active ? "Warning + Radar" : "Statewide Radar",
-        warning.active ? "warning-radar-combined.png" : "warning-radar-statewide.png",
-        (warning.active ? "radar · combined warning extent" : "radar · statewide") + (products.trackingEnabled ? " · cell tracking" : "")
+        warning.active ? "warning-radar-combined" : "warning-radar-statewide",
+        (warning.active ? "radar · combined warning extent" : "radar · statewide") + (products.trackingEnabled ? " · cell tracking" : ""),
+        products.generated
       );
       addMapCard(
         products.infraBlob,
         warning.active ? "Warning + Infrastructure Impacts" : "Statewide Infrastructure Impacts",
-        warning.active ? "warning-infrastructure-combined.png" : "warning-infrastructure-statewide.png",
-        (warning.active ? "infrastructure · combined warning extent" : "infrastructure · statewide") + (products.trackingEnabled ? " · cell tracking" : "")
+        warning.active ? "warning-infrastructure-combined" : "warning-infrastructure-statewide",
+        (warning.active ? "infrastructure · combined warning extent" : "infrastructure · statewide") + (products.trackingEnabled ? " · cell tracking" : ""),
+        products.generated
       );
 
       emptyEl.hidden = true;
