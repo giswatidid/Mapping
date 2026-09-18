@@ -92,11 +92,9 @@ function setFeedStatus(detail) {
     els.empty.textContent = "Map generation is unavailable until both authenticated WMS sources are verified.";
   }
 
-  // The old GitHub/Worker generator has been removed. This will be enabled
-  // only by the browser renderer once it is attached to the authenticated sources.
-  els.generate.disabled = true;
+  els.generate.disabled = !(warningOk && radarOk);
   els.generate.title = warningOk && radarOk
-    ? "Authenticated feeds are ready; the authenticated map renderer is the next component."
+    ? "Generate the two current authenticated map products."
     : "Both authenticated WMS feeds must be available before rendering.";
 }
 
