@@ -3,14 +3,8 @@
   const publicSources = cfg.publicSources || {};
   const renderCfg = cfg.rendering || {};
   const QLD_EXTENT = renderCfg.qldExtent || [137.7, -29.3, 154.2, -9.0];
-  // Temporary diagnostic extent covering Cooktown, Cairns and Innisfail.
-  // This deliberately uses the exact same authenticated radar render path as
-  // the operational product, but at a much tighter geographic extent.
-  const NQ_RADAR_DIAGNOSTIC_EXTENT = [143.2, -18.8, 146.8, -14.2];
   const generateButton = document.querySelector("#generateButton");
-  const radarDiagnosticButton = document.querySelector("#radarDiagnosticButton");
   const mapsEl = document.querySelector("#maps");
-  const radarDiagnosticEl = document.querySelector("#radarDiagnostic");
   const emptyEl = document.querySelector("#emptyState");
   const statusCard = document.querySelector("#statusCard");
   const statusBadge = document.querySelector("#statusBadge");
@@ -898,7 +892,7 @@
     outputUrls = [];
   }
 
-  function addMapCard(blob, title, filenameBase, meta, generatedDate, target=mapsEl) {
+  function addMapCard(blob, title, filenameBase, meta, generatedDate) {
     const url = URL.createObjectURL(blob);
     outputUrls.push(url);
 
@@ -933,7 +927,7 @@
 
     info.append(copy, download);
     card.append(imageLink, info);
-    target?.appendChild(card);
+    mapsEl.appendChild(card);
   }
 
   async function buildProducts(extent, active, publicData, publicWarnings) {
@@ -1058,106 +1052,6 @@
     };
   }
 
-  async function runRadarDiagnostic() {
-    const arcgis = window.MAPPING_ARCGIS;
-    if (!arcgis?.renderWmsImage) {
-      setStatus("error", "Authenticated renderer is not ready", "Reconnect the standard ArcGIS feeds and try again.", "Not ready");
-      return;
-    }
-
-    const originalText = radarDiagnosticButton?.textContent || "Test NQ radar";
-    if (radarDiagnosticButton) {
-      radarDiagnosticButton.disabled = true;
-      radarDiagnosticButton.textContent = "Testing radar…";
-    }
-
-    try {
-      const extent = NQ_RADAR_DIAGNOSTIC_EXTENT;
-      const width = 1000;
-      const height = Math.round(width / extentAspect(extent));
-      const result = await arcgis.renderWmsImage("radar", extent, width, height);
-      const radarImage = await blobToBitmap(result.blob);
-
-      const top = 70;
-      const footer = 62;
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = top + height + footer;
-      const ctx = canvas.getContext("2d");
-
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      ctx.fillStyle = "#17191b";
-      ctx.font = "700 24px Arial";
-      ctx.textAlign = "left";
-      ctx.textBaseline = "alphabetic";
-      ctx.fillText("North Queensland Radar Diagnostic", 16, 30);
-
-      ctx.fillStyle = "#61666a";
-      ctx.font = "14px Arial";
-      ctx.fillText("Raw authenticated IDR00010 render · Cooktown / Cairns / Innisfail test extent", 16, 52);
-
-      ctx.save();
-      ctx.translate(0, top);
-      ctx.fillStyle = "#f6f7f8";
-      ctx.fillRect(0, 0, width, height);
-      ctx.globalAlpha = 1;
-      ctx.drawImage(radarImage, 0, 0, width, height);
-      ctx.strokeStyle = "#454b4f";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
-      ctx.restore();
-
-      const footerY = top + height;
-      ctx.strokeStyle = "#d4d6d8";
-      ctx.beginPath();
-      ctx.moveTo(0, footerY);
-      ctx.lineTo(width, footerY);
-      ctx.stroke();
-
-      ctx.fillStyle = "#5b6064";
-      ctx.font = "12px Arial";
-      ctx.textBaseline = "top";
-      ctx.fillText("Extent: 143.2–146.8°E, 18.8–14.2°S. No warning, context, LGA or infrastructure layers are composited.", 14, footerY + 12);
-      ctx.fillText("If radar appears here but not statewide, the issue is scale/resampling. If this is blank too, the WMS/Print request path is the issue.", 14, footerY + 31);
-
-      const generated = new Date();
-      const blob = await canvasBlob(canvas);
-
-      if (radarDiagnosticEl) {
-        radarDiagnosticEl.innerHTML = "";
-        radarDiagnosticEl.hidden = false;
-        addMapCard(
-          blob,
-          "North Queensland Radar Diagnostic",
-          "diagnostic-radar-north-queensland",
-          "raw IDR00010 · tight North Queensland extent · diagnostic only",
-          generated,
-          radarDiagnosticEl
-        );
-      }
-
-      setStatus(
-        "ok",
-        "North Queensland radar diagnostic generated",
-        "This diagnostic uses the same authenticated radar render path as the operational map, but at a tight Cooktown–Cairns–Innisfail extent.",
-        "Diagnostic"
-      );
-    } catch (error) {
-      if (radarDiagnosticEl) {
-        radarDiagnosticEl.hidden = false;
-        radarDiagnosticEl.innerHTML = '<div class="empty-state">' + cleanMessage(error) + "</div>";
-      }
-      setStatus("error", "Radar diagnostic failed", cleanMessage(error), "Error");
-    } finally {
-      if (radarDiagnosticButton) {
-        radarDiagnosticButton.disabled = false;
-        radarDiagnosticButton.textContent = originalText;
-      }
-    }
-  }
-
   async function generateMaps() {
     if (!window.MAPPING_ARCGIS?.renderWmsImage) {
       setStatus("error", "Authenticated renderer is not ready", "Reconnect the standard ArcGIS feeds and try again.", "Not ready");
@@ -1238,6 +1132,5 @@
     });
   }
 
-  radarDiagnosticButton?.addEventListener("click", runRadarDiagnostic);
   generateButton?.addEventListener("click", generateMaps);
 })();
