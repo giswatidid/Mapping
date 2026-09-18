@@ -39,6 +39,7 @@ window.MAPPING_CONFIG = {
     majorRoads: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/23"
   },
   rendering: {
+    basemapStyle: "arcgis/topographic",
     qldExtent: [137.7, -29.3, 154.2, -9.0],
     warningDetectionSize: [720, 900],
     maxOutputWidth: 1500,
