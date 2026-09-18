@@ -274,6 +274,92 @@ async function getPortalItemAndData(source) {
   return { portalItem, data, serviceUrl: portalItem.url || null };
 }
 
+function safeParameterObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const output = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (entry == null) continue;
+    if (["string", "number", "boolean"].includes(typeof entry)) {
+      output[String(key)] = String(entry);
+    }
+  }
+  return output;
+}
+
+function findWmsItemConfig(value, seen=new Set()) {
+  if (!value || typeof value !== "object" || seen.has(value)) return null;
+  seen.add(value);
+
+  if (!Array.isArray(value)) {
+    const layerType = normalise(value.layerType || value.type);
+    const looksLikeWms = layerType === "wms" || Boolean(
+      value.mapUrl || value.customParameters || value.customLayerParameters
+    );
+
+    if (looksLikeWms) {
+      return {
+        url: typeof value.url === "string" ? value.url : null,
+        mapUrl: typeof value.mapUrl === "string" ? value.mapUrl : null,
+        version: typeof value.version === "string" ? value.version : null,
+        customParameters: safeParameterObject(value.customParameters),
+        customLayerParameters: safeParameterObject(value.customLayerParameters)
+      };
+    }
+  }
+
+  const children = Array.isArray(value) ? value : Object.values(value);
+  for (const child of children) {
+    const found = findWmsItemConfig(child, seen);
+    if (found) return found;
+  }
+  return null;
+}
+
+function buildWmsRequestConfig(serviceUrl, data) {
+  const itemConfig = findWmsItemConfig(data) || {};
+  const mapUrl = itemConfig.mapUrl || itemConfig.url || serviceUrl;
+  if (!mapUrl) return null;
+
+  let url;
+  try {
+    url = new URL(mapUrl, portalUrl || window.location.href);
+  } catch {
+    return {
+      url: serviceUrl,
+      mapUrl: serviceUrl,
+      version: itemConfig.version || "1.3.0",
+      customParameters: itemConfig.customParameters || {},
+      customLayerParameters: itemConfig.customLayerParameters || {}
+    };
+  }
+
+  // Keep query parameters already registered on the ArcGIS item URL. These may
+  // include credentials required by the upstream WMS gateway. Values remain in
+  // memory only and are never written to localStorage or displayed in the UI.
+  try {
+    const registered = new URL(serviceUrl, portalUrl || window.location.href);
+    registered.searchParams.forEach((value, key) => {
+      if (!url.searchParams.has(key)) url.searchParams.set(key, value);
+    });
+  } catch {}
+
+  const mergedParameters = {
+    ...(itemConfig.customParameters || {}),
+    ...(itemConfig.customLayerParameters || {})
+  };
+  Object.entries(mergedParameters).forEach(([key, value]) => {
+    if (!url.searchParams.has(key)) url.searchParams.set(key, value);
+  });
+
+  return {
+    url: url.toString(),
+    mapUrl: url.toString(),
+    version: itemConfig.version || "1.3.0",
+    customParameters: itemConfig.customParameters || {},
+    customLayerParameters: itemConfig.customLayerParameters || {}
+  };
+}
+
 async function renderWmsPrintImage(role, extent, width, height, sourceOverride=null, metadataOverride=null, options={}) {
   const spec = cfg.standardSources?.[role];
   const source = sourceOverride || runtimeSources.get(role)?.source || loadSavedSource(role);
@@ -284,6 +370,9 @@ async function renderWmsPrintImage(role, extent, width, height, sourceOverride=n
 
   const { data, serviceUrl } = await getPortalItemAndData(source);
   if (!serviceUrl) throw new Error("The authenticated WMS item does not expose a service URL.");
+
+  const requestConfig = buildWmsRequestConfig(serviceUrl, data);
+  if (!requestConfig?.url) throw new Error("The authenticated WMS item does not expose a usable GetMap URL.");
 
   const metadata = metadataOverride || findSublayerMetadata(data, spec.sublayerTitle);
   const requestedTitles = Array.isArray(options?.sublayerTitles) && options.sublayerTitles.length
@@ -354,15 +443,23 @@ async function renderWmsPrintImage(role, extent, width, height, sourceOverride=n
       }
     },
     operationalLayers: [{
-      url: serviceUrl,
+      id: role + "-wms",
+      url: requestConfig.url,
+      mapUrl: requestConfig.mapUrl,
+      itemId: source.itemId,
       title: spec.itemTitle,
       type: "wms",
+      layerType: "WMS",
       opacity: 1,
-      version: "1.3.0",
+      visibility: true,
+      version: requestConfig.version,
       format: "png32",
       transparentBackground: true,
+      customParameters: requestConfig.customParameters,
+      customLayerParameters: requestConfig.customLayerParameters,
       layers: sublayerNames.map((name) => ({ name })),
-      visibleLayers: sublayerNames
+      visibleLayers: sublayerNames,
+      styles: sublayerNames.map(() => "")
     }],
     exportOptions: {
       outputSize: [Math.max(64, Math.round(width)), Math.max(64, Math.round(height))],
@@ -398,7 +495,12 @@ async function renderWmsPrintImage(role, extent, width, height, sourceOverride=n
     sublayerName: sublayerNames[0],
     sublayerTitle: resolvedSublayers[0]?.title || metadata?.title || spec.sublayerTitle,
     sublayerNames,
-    sublayerTitles: resolvedSublayers.map((entry) => entry.title)
+    sublayerTitles: resolvedSublayers.map((entry) => entry.title),
+    diagnostics: {
+      usesRegisteredMapUrl: Boolean(requestConfig.mapUrl),
+      customParameterCount: Object.keys(requestConfig.customParameters || {}).length,
+      customLayerParameterCount: Object.keys(requestConfig.customLayerParameters || {}).length
+    }
   };
 }
 
