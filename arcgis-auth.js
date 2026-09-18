@@ -27,6 +27,7 @@ let OAuthInfo;
 let Portal;
 let PortalItem;
 let WMSLayer;
+let esriConfig;
 let portal;
 let portalUrl;
 
@@ -234,6 +235,11 @@ async function createConfiguredWmsLayer(role, sourceOverride = null) {
     portal
   });
 
+  // Load the private portal item first through the authenticated ArcGIS session.
+  // WMS capabilities/image requests may then fall back through the organisation's
+  // own sharing proxy when the upstream WMS does not permit github.io via CORS.
+  await portalItem.load();
+
   const layer = new WMSLayer({
     portalItem,
     title: spec.itemTitle
@@ -334,6 +340,15 @@ async function resolveAllStandardSources(clearCached = false) {
 
 function configure(prefixValue) {
   portalUrl = "https://" + prefixValue + ".maps.arcgis.com";
+
+  // Esri requires a proxy when a cross-domain WMS server does not provide CORS.
+  // Use the signed-in organisation's own sharing proxy; no private WMS request
+  // is sent through GitHub, Cloudflare, or another application-controlled server.
+  if (esriConfig?.request) {
+    esriConfig.request.proxyUrl = portalUrl + "/sharing/proxy";
+    esriConfig.request.timeout = 90000;
+  }
+
   esriId.registerOAuthInfos([
     new OAuthInfo({
       appId: cfg.clientId,
@@ -400,12 +415,13 @@ async function startLogin(value) {
 }
 
 async function init() {
-  [OAuthInfo, esriId, Portal, PortalItem, WMSLayer] = await $arcgis.import([
+  [OAuthInfo, esriId, Portal, PortalItem, WMSLayer, esriConfig] = await $arcgis.import([
     "@arcgis/core/identity/OAuthInfo.js",
     "@arcgis/core/identity/IdentityManager.js",
     "@arcgis/core/portal/Portal.js",
     "@arcgis/core/portal/PortalItem.js",
-    "@arcgis/core/layers/WMSLayer.js"
+    "@arcgis/core/layers/WMSLayer.js",
+    "@arcgis/core/config.js"
   ]);
 
   ui.form?.addEventListener("submit", (event) => {
