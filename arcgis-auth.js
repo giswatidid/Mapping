@@ -296,6 +296,14 @@ async function renderWmsPrintImage(role, extent, width, height, sourceOverride=n
       : "";
 
     if (configuredByTitle) {
+      const liveMetadata = findSublayerMetadata(data, title);
+      if (liveMetadata?.name && normalise(liveMetadata.name) !== normalise(configuredByTitle)) {
+        throw new Error(
+          'WMS sublayer mapping changed for "' + title + '": expected "' +
+          configuredByTitle + '" but ArcGIS metadata reports "' + liveMetadata.name + '".'
+        );
+      }
+
       return {
         name: configuredByTitle,
         title
@@ -305,8 +313,17 @@ async function renderWmsPrintImage(role, extent, width, height, sourceOverride=n
     if (normalise(title) === normalise(spec.sublayerTitle)) {
       const configuredNativeName = String(spec.wmsLayerName || "").trim();
       if (configuredNativeName || source.sublayerName) {
+        const chosenName = configuredNativeName || source.sublayerName;
+        const liveMetadata = findSublayerMetadata(data, spec.sublayerTitle);
+        if (liveMetadata?.name && normalise(liveMetadata.name) !== normalise(chosenName)) {
+          throw new Error(
+            'WMS sublayer mapping changed for "' + spec.sublayerTitle + '": expected "' +
+            chosenName + '" but ArcGIS metadata reports "' + liveMetadata.name + '".'
+          );
+        }
+
         return {
-          name: configuredNativeName || source.sublayerName,
+          name: chosenName,
           title: spec.sublayerTitle
         };
       }
