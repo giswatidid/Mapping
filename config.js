@@ -19,6 +19,18 @@ window.MAPPING_CONFIG = {
   },
   publicSources: {
     powerOutages: "https://raw.githubusercontent.com/gowlettluke/qldpoweroutages/main/data/current_outages.geojson",
-    roadConditions: "https://data.qldtraffic.qld.gov.au/events_v2.geojson"
+    roadConditions: "https://data.qldtraffic.qld.gov.au/events_v2.geojson",
+    lga: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdminBoundariesFramework/FeatureServer/11",
+    coastline: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/55",
+    stateBorder: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/5",
+    mainland: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Location/GeographicalFeatures/FeatureServer/90",
+    populationCentres: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Location/Places/FeatureServer/20",
+    majorRoads: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/23"
+  },
+  rendering: {
+    qldExtent: [137.7, -29.3, 154.2, -9.0],
+    warningDetectionSize: [720, 900],
+    maxOutputWidth: 1500,
+    minOutputWidth: 1100
   }
 };
