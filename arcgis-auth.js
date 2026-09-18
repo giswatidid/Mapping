@@ -153,7 +153,6 @@ function normalisePortalItem(item, groupTitles = []) {
     itemId: item.id,
     title: item.title || item.id,
     type: item.type || null,
-    serviceUrl: item.url || null,
     owner: item.owner || null,
     modified: item.modified || null,
     groupTitles: [...new Set(groupTitles.filter(Boolean))]
@@ -272,29 +271,37 @@ async function getPortalItemAndData(source) {
     data = await portalItem.fetchData();
   } catch {}
 
-  return { portalItem, data };
+  return { portalItem, data, serviceUrl: portalItem.url || null };
 }
 
-async function testPrintServiceWms(role, source, metadata) {
+async function renderWmsPrintImage(role, extent, width, height, sourceOverride=null, metadataOverride=null) {
+  const spec = cfg.standardSources?.[role];
+  const source = sourceOverride || runtimeSources.get(role)?.source || loadSavedSource(role);
+  if (!spec || !source?.itemId) throw new Error("The standard " + role + " WMS has not been resolved.");
+
   const printTask = portal.helperServices?.printTask?.url;
   if (!printTask) throw new Error("This ArcGIS organisation does not advertise a print service.");
 
-  const spec = cfg.standardSources?.[role];
-  const sublayerName = metadata?.name || spec.sublayerTitle;
+  const { data, serviceUrl } = await getPortalItemAndData(source);
+  if (!serviceUrl) throw new Error("The authenticated WMS item does not expose a service URL.");
+
+  const metadata = metadataOverride || findSublayerMetadata(data, spec.sublayerTitle);
+  const sublayerName = source.sublayerName || metadata?.name || spec.sublayerTitle;
   const taskUrl = String(printTask).replace(/\/$/, "") + "/execute";
+  const bounds = Array.isArray(extent) ? extent : [extent.xmin, extent.ymin, extent.xmax, extent.ymax];
 
   const webMap = {
     mapOptions: {
       extent: {
-        xmin: 137.8,
-        ymin: -29.3,
-        xmax: 154.2,
-        ymax: -9.0,
+        xmin: bounds[0],
+        ymin: bounds[1],
+        xmax: bounds[2],
+        ymax: bounds[3],
         spatialReference: { wkid: 4326 }
       }
     },
     operationalLayers: [{
-      url: source.serviceUrl,
+      url: serviceUrl,
       title: spec.itemTitle,
       type: "wms",
       opacity: 1,
@@ -305,7 +312,7 @@ async function testPrintServiceWms(role, source, metadata) {
       visibleLayers: [sublayerName]
     }],
     exportOptions: {
-      outputSize: [420, 520],
+      outputSize: [Math.max(64, Math.round(width)), Math.max(64, Math.round(height))],
       dpi: 96
     }
   };
@@ -327,14 +334,35 @@ async function testPrintServiceWms(role, source, metadata) {
   const output = (payload.results || []).find((entry) => entry.paramName === "Output_File")?.value?.url;
   if (!output) throw new Error("ArcGIS print service returned no map image.");
 
+  const imageResponse = await esriRequest(output, {
+    responseType: "blob",
+    authMode: "auto"
+  });
+
   return {
-    mode: "arcgis-print-service",
+    blob: imageResponse.data,
+    url: output,
     sublayerName,
-    sublayerTitle: metadata?.title || spec.sublayerTitle,
-    testOutput: output
+    sublayerTitle: metadata?.title || spec.sublayerTitle
   };
 }
 
+async function testPrintServiceWms(role, source, metadata) {
+  const result = await renderWmsPrintImage(
+    role,
+    [137.8, -29.3, 154.2, -9.0],
+    420,
+    520,
+    source,
+    metadata
+  );
+
+  return {
+    mode: "arcgis-print-service",
+    sublayerName: result.sublayerName,
+    sublayerTitle: result.sublayerTitle
+  };
+}
 async function createConfiguredWmsLayer(role, sourceOverride = null) {
   const spec = cfg.standardSources?.[role];
   const source = sourceOverride || runtimeSources.get(role)?.source || loadSavedSource(role);
@@ -389,7 +417,12 @@ async function resolveStandardSource(role) {
   const verified = await createConfiguredWmsLayer(role, source);
 
   const saved = {
-    ...source,
+    itemId: source.itemId,
+    title: source.title || spec.itemTitle,
+    type: source.type || spec.itemType,
+    owner: source.owner || null,
+    modified: source.modified || null,
+    groupTitles: source.groupTitles || [],
     itemTitle: spec.itemTitle,
     sublayerTitle: spec.sublayerTitle,
     sublayerName: verified.sublayerName,
@@ -487,6 +520,9 @@ async function showApp() {
     },
     createWmsLayer(role) {
       return createConfiguredWmsLayer(role);
+    },
+    renderWmsImage(role, extent, width, height) {
+      return renderWmsPrintImage(role, extent, width, height);
     }
   };
 
