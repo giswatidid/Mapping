@@ -58,7 +58,7 @@ Required sublayer:
 
 The item IDs and service URLs are discovered after authentication and are never hard-coded in the repository.
 
-The application restricts each WMS to only the required sublayer rather than rendering every layer exposed by the service.
+The application restricts each WMS to the required operational sublayers rather than rendering every layer exposed by the service. The warning WMS can optionally add storm-cell, UTC-time and storm-direction overlays without changing warning-extent detection.
 
 ## Public infrastructure sources
 
@@ -116,7 +116,7 @@ public Queensland outage / road / reference data
   ↓
 client-side map rendering
   ↓
-two browser-generated PNG products
+two browser-generated JPEG products
 ```
 
 Private weather data is not sent to GitHub Actions and is not committed to the repository.
@@ -152,8 +152,7 @@ Bottom to top:
 4. severe-thunderstorm warning
 5. power outage polygons
 6. road closures/restrictions
-7. road labels
-8. outage customer labels
+7. outage customer labels
 
 On active-warning maps, LGA labels provide low-priority background context. On statewide quiet-day maps, LGA labels are suppressed.
 
