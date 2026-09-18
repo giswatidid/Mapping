@@ -82,7 +82,7 @@ function setFeedStatus(detail) {
     els.badge.textContent = "Feeds ready";
     els.title.textContent = "Standard authenticated feeds connected";
     els.message.textContent = "Both required Bureau WMS services and their exact operational sublayers were verified in this signed-in browser session.";
-    els.empty.textContent = "Authenticated feeds are ready. Client-side rendering will create the two map products here without publishing private weather data to GitHub.";
+    els.empty.textContent = "Authenticated feeds are ready. The renderer will create the two map products without publishing private weather data to GitHub.";
   } else {
     els.statusCard.className = "scope-banner error";
     els.badge.className = "scope-badge error";
@@ -96,7 +96,7 @@ function setFeedStatus(detail) {
   // only by the browser renderer once it is attached to the authenticated sources.
   els.generate.disabled = true;
   els.generate.title = warningOk && radarOk
-    ? "Authenticated feeds are ready; the client-side renderer is the next component."
+    ? "Authenticated feeds are ready; the authenticated map renderer is the next component."
     : "Both authenticated WMS feeds must be available before rendering.";
 }
 
@@ -131,7 +131,7 @@ if (els.warningCount) els.warningCount.textContent = "—";
 if (els.mode) els.mode.textContent = "Browser";
 if (els.generate) {
   els.generate.disabled = true;
-  els.generate.title = "Waiting for the authenticated browser renderer.";
+  els.generate.title = "Waiting for the authenticated map renderer.";
 }
 
 initialiseTheme();
