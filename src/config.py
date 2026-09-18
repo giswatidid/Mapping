@@ -61,13 +61,10 @@ BOM_CAP_RSS_URL = os.getenv(
     "https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/rss.xml",
 ).strip()
 
-# Public radar source. RainViewer publishes a keyless Web Mercator composite
-# radar API suitable for personal, educational and small community projects.
-RAINVIEWER_ENABLED = os.getenv("RAINVIEWER_ENABLED", "true").lower() in {"1", "true", "yes"}
-RAINVIEWER_MANIFEST_URL = os.getenv(
-    "RAINVIEWER_MANIFEST_URL",
-    "https://api.rainviewer.com/public/weather-maps.json",
-).strip()
+# Legacy renderer compatibility only. Live radar now comes from the authenticated
+# ArcGIS WMS in the signed-in browser, so the public RainViewer path is disabled.
+RAINVIEWER_ENABLED = False
+RAINVIEWER_MANIFEST_URL = ""
 RAINVIEWER_TILE_SIZE = int(os.getenv("RAINVIEWER_TILE_SIZE", "512"))
 RAINVIEWER_MAX_ZOOM = min(7, int(os.getenv("RAINVIEWER_MAX_ZOOM", "7")))
 RAINVIEWER_MAX_TILES = int(os.getenv("RAINVIEWER_MAX_TILES", "36"))
