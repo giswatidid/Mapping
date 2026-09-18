@@ -7,8 +7,8 @@
   <meta name="theme-color" content="#12161d" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
   <title>Queensland Severe Thunderstorm Mapping</title>
-  <link rel="stylesheet" href="styles.css?v=20260918-browser14">
-  <link rel="stylesheet" href="auth.css?v=20260918-browser14">
+  <link rel="stylesheet" href="styles.css?v=20260918-browser15">
+  <link rel="stylesheet" href="auth.css?v=20260918-browser15">
 </head>
 <body>
   <main id="loginGate" class="auth-page" hidden>
@@ -120,14 +120,10 @@
             <h2>Map products</h2>
             <p>Exactly two products are generated for the signed-in session: Warning + Radar and Warning + Infrastructure Impacts.</p>
           </div>
-          <div class="panel-scope">
-            <button id="radarDiagnosticButton" type="button" title="Render the raw authenticated radar layer over a tight Cooktown–Cairns–Innisfail extent to diagnose statewide scale/resampling.">Test NQ radar</button>
-            <span class="mini-chip">Authenticated JPEG</span>
-          </div>
+          <div class="panel-scope"><span class="mini-chip">Authenticated JPEG</span></div>
         </div>
         <div class="panel-body">
           <div id="maps" class="map-grid"></div>
-          <div id="radarDiagnostic" class="map-grid" hidden></div>
           <div id="emptyState" class="empty-state">The standard authenticated feeds are being verified. No private map output is published to GitHub.</div>
         </div>
       </section>
@@ -150,10 +146,10 @@
     </footer>
   </div>
 
-  <script src="config.js?v=20260918-browser14"></script>
+  <script src="config.js?v=20260918-browser15"></script>
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
-  <script type="module" src="arcgis-auth.js?v=20260918-browser14"></script>
-  <script src="app.js?v=20260918-browser14"></script>
-  <script src="renderer.js?v=20260918-browser14"></script>
+  <script type="module" src="arcgis-auth.js?v=20260918-browser15"></script>
+  <script src="app.js?v=20260918-browser15"></script>
+  <script src="renderer.js?v=20260918-browser15"></script>
 </body>
 </html>
