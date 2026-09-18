@@ -16,6 +16,25 @@
 
   let outputUrls = [];
 
+  // Same BOM rain-rate key used by the previous registered-WMS renderer.
+  const RAIN_RATE_LEGEND = [
+    ["<2", "#f5f5ff"],
+    ["2–3", "#b4b4ff"],
+    ["3–5", "#7878ff"],
+    ["5–7", "#1414ff"],
+    ["7–10", "#00d8c3"],
+    ["10–15", "#009690"],
+    ["15–25", "#006666"],
+    ["25–35", "#ffff00"],
+    ["35–55", "#ffc800"],
+    ["55–80", "#ff9600"],
+    ["80–120", "#ff6400"],
+    ["120–180", "#ff0000"],
+    ["180–270", "#c80000"],
+    ["270–400", "#780000"],
+    ["400+", "#280000"]
+  ];
+
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
   function cleanMessage(error, fallback="Map generation failed.") {
@@ -557,10 +576,15 @@
     ctx.restore();
   }
 
-  function drawRoadConditions(ctx, roads, project, statewide) {
-    const labels = [];
-    const ordered = [...roads].sort((a, b) => (a.passability === "impassable" ? -1 : 1) - (b.passability === "impassable" ? -1 : 1));
+  function drawRoadConditions(ctx, roads, project) {
+    const ordered = [...roads].sort((a, b) => {
+      const av = a.passability === "impassable" ? 0 : 1;
+      const bv = b.passability === "impassable" ? 0 : 1;
+      return av - bv;
+    });
 
+    // Road events are intentionally unlabelled. The key and footer explain
+    // their meaning without placing road names over the operational picture.
     for (const road of ordered) {
       ctx.beginPath();
       pathGeometry(ctx, road.geometry, project);
@@ -568,24 +592,6 @@
       ctx.lineWidth = road.passability === "impassable" ? 3.2 : 2.4;
       ctx.stroke();
     }
-
-    ctx.save();
-    ctx.font = "700 12px Arial";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    for (const road of ordered.slice(0, statewide ? 14 : 24)) {
-      if (!road.roadName) continue;
-      const point = representativePoint(road.geometry);
-      if (!point) continue;
-      const [x, y] = project(point);
-      if (!collisionFree(labels, x, y, road.roadName, 12)) continue;
-      ctx.strokeStyle = "rgba(255,255,255,.96)";
-      ctx.lineWidth = 4;
-      ctx.strokeText(road.roadName, x, y);
-      ctx.fillStyle = road.passability === "impassable" ? "#8f1017" : "#985108";
-      ctx.fillText(road.roadName, x, y);
-    }
-    ctx.restore();
   }
 
   function drawContext(ctx, width, height, extent, data, active) {
@@ -627,10 +633,11 @@
 
   function makeProductCanvas(mapWidth, mapHeight, title, subtitle) {
     const top = 66;
-    const bottom = 74;
+    const legendHeight = 116;
+    const footerHeight = 74;
     const canvas = document.createElement("canvas");
     canvas.width = mapWidth;
-    canvas.height = mapHeight + top + bottom;
+    canvas.height = mapHeight + top + legendHeight + footerHeight;
     const ctx = canvas.getContext("2d");
 
     ctx.fillStyle = "#ffffff";
@@ -646,18 +653,163 @@
     ctx.font = "14px Arial";
     ctx.fillText(subtitle, 16, 52);
 
-    return { canvas, ctx, mapX: 0, mapY: top, mapWidth, mapHeight, bottom };
+    return {
+      canvas,
+      ctx,
+      mapX: 0,
+      mapY: top,
+      mapWidth,
+      mapHeight,
+      legendY: top + mapHeight,
+      legendHeight,
+      footerY: top + mapHeight + legendHeight,
+      footerHeight
+    };
   }
 
-  function drawFooter(ctx, canvas, mapHeight, top, lines) {
-    const y = top + mapHeight;
+  function drawLegendLine(ctx, x, y, colour, label, width=42, dashed=false) {
+    ctx.save();
+    ctx.strokeStyle = colour;
+    ctx.lineWidth = 3;
+    if (dashed) ctx.setLineDash([8, 5]);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + width, y);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = "#4f5559";
+    ctx.font = "12px Arial";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, x + width + 8, y);
+  }
+
+  function drawLegendBox(ctx, x, y, fill, stroke, label, width=30) {
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 2;
+    ctx.fillRect(x, y - 8, width, 16);
+    ctx.strokeRect(x, y - 8, width, 16);
+
+    ctx.fillStyle = "#4f5559";
+    ctx.font = "12px Arial";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, x + width + 8, y);
+  }
+
+  function drawRadarLegend(ctx, product, active) {
+    const y = product.legendY;
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, y, canvas.width, canvas.height - y);
+    ctx.fillRect(0, y, product.canvas.width, product.legendHeight);
     ctx.strokeStyle = "#d4d6d8";
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, y);
-    ctx.lineTo(canvas.width, y);
+    ctx.lineTo(product.canvas.width, y);
+    ctx.stroke();
+
+    let x = 16;
+    const rowY = y + 21;
+    if (active) {
+      drawLegendBox(ctx, x, rowY, "rgba(255,212,59,.28)", "#b45309", "Severe thunderstorm warning");
+      x += 242;
+    }
+    drawLegendLine(ctx, x, rowY, "#3e4549", "Queensland coastline / state border");
+    x += 280;
+    drawLegendLine(ctx, x, rowY, "rgba(101,107,111,.72)", "Local government area boundary", 36);
+
+    ctx.fillStyle = "#3f4448";
+    ctx.font = "700 11px Arial";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Radar rain rate (mm/h)", 16, y + 54);
+
+    const barX = 155;
+    const barY = y + 45;
+    const available = product.canvas.width - barX - 16;
+    const cellWidth = available / RAIN_RATE_LEGEND.length;
+    RAIN_RATE_LEGEND.forEach(([label, colour], index) => {
+      const sx = barX + index * cellWidth;
+      ctx.fillStyle = colour;
+      ctx.fillRect(sx, barY, cellWidth + 0.5, 16);
+      ctx.strokeStyle = "rgba(70,75,80,.35)";
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(sx, barY, cellWidth + 0.5, 16);
+      ctx.fillStyle = "#555b60";
+      ctx.font = "8px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(label, sx + cellWidth / 2, barY + 20);
+    });
+
+    ctx.fillStyle = "#71767a";
+    ctx.font = "10px Arial";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText("Bureau of Meteorology radar rain-rate symbology", 16, y + 103);
+  }
+
+  function drawInfrastructureLegend(ctx, product, active, hasPointOutages=false) {
+    const y = product.legendY;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, y, product.canvas.width, product.legendHeight);
+    ctx.strokeStyle = "#d4d6d8";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(product.canvas.width, y);
+    ctx.stroke();
+
+    const row1 = y + 25;
+    const row2 = y + 67;
+    let x = 16;
+
+    if (active) {
+      drawLegendBox(ctx, x, row1, "rgba(255,212,59,.28)", "#b45309", "Severe thunderstorm warning");
+      x += 242;
+    }
+    drawLegendLine(ctx, x, row1, "#3e4549", "Queensland coastline / state border");
+    x += 280;
+    drawLegendLine(ctx, x, row1, "rgba(101,107,111,.72)", "Local government area boundary", 36);
+
+    x = 16;
+    drawLegendBox(ctx, x, row2, "rgba(210,35,42,.22)", "#92141b", "Unplanned power outage area (number = customers affected)");
+    x += 410;
+    drawLegendLine(ctx, x, row2, "#bd1f24", "Road closed / impassable");
+    x += 215;
+
+    if (active) {
+      drawLegendLine(ctx, x, row2, "#d97706", "Road restricted / conditional access");
+    } else if (hasPointOutages) {
+      ctx.fillStyle = "#bb181f";
+      ctx.beginPath();
+      ctx.arc(x + 8, row2, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#4f5559";
+      ctx.font = "12px Arial";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText("Outage location where no polygon is available", x + 22, row2);
+    }
+
+    ctx.fillStyle = "#71767a";
+    ctx.font = "10px Arial";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText("Road event names are intentionally omitted from the operational map.", 16, y + 103);
+  }
+
+  function drawFooter(ctx, product, lines) {
+    const y = product.footerY;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, y, product.canvas.width, product.footerHeight);
+    ctx.strokeStyle = "#d4d6d8";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(product.canvas.width, y);
     ctx.stroke();
 
     ctx.fillStyle = "#5b6064";
@@ -762,7 +914,8 @@
     rctx.lineWidth = 1;
     rctx.strokeRect(0.5, 0.5, mapWidth - 1, mapHeight - 1);
     rctx.restore();
-    drawFooter(rctx, radarProduct.canvas, mapHeight, radarProduct.mapY, [
+    drawRadarLegend(rctx, radarProduct, active);
+    drawFooter(rctx, radarProduct, [
       "Generated " + stamp + " · Warning and radar rendered through authenticated ArcGIS services.",
       "Context: Queensland Government coastline, state border, LGAs, major roads and population centres.",
       publicWarnings.length ? "Context warning: " + publicWarnings[0] : "Private weather data is not committed to GitHub."
@@ -780,7 +933,7 @@
     const project = drawContext(ictx, mapWidth, mapHeight, extent, publicData, active);
     ictx.drawImage(warningImage, 0, 0, mapWidth, mapHeight);
     drawOutages(ictx, publicData.outagesNorm || [], project, !active);
-    drawRoadConditions(ictx, publicData.roadsNorm || [], project, !active);
+    drawRoadConditions(ictx, publicData.roadsNorm || [], project);
     ictx.strokeStyle = "#454b4f";
     ictx.lineWidth = 1;
     ictx.strokeRect(0.5, 0.5, mapWidth - 1, mapHeight - 1);
@@ -790,7 +943,11 @@
     const fullClosures = (publicData.roadsNorm || []).filter((road) => road.passability === "impassable").length;
     const restrictions = (publicData.roadsNorm || []).filter((road) => road.passability === "passable_with_conditions").length;
 
-    drawFooter(ictx, infraProduct.canvas, mapHeight, infraProduct.mapY, [
+    const hasPointOutages = (publicData.outagesNorm || []).some((outage) =>
+      outage.geometry?.type === "Point" || outage.geometry?.type === "MultiPoint"
+    );
+    drawInfrastructureLegend(ictx, infraProduct, active, hasPointOutages);
+    drawFooter(ictx, infraProduct, [
       "Generated " + stamp + " · " + (publicData.outagesNorm || []).length + " unplanned outage area(s), " + knownCustomers.toLocaleString("en-AU") + " known customers affected.",
       "QLD Traffic: " + fullClosures + " full closure(s)" + (active ? " and " + restrictions + " restriction(s)." : "; conditional restrictions suppressed on statewide view."),
       publicWarnings.length ? "Context warning: " + publicWarnings[0] : "Road conditions: QLD Traffic · power outages: public Queensland outage feed."
