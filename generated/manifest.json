@@ -1,68 +1,68 @@
 {
-  "generated_at": "2026-09-18T11:20:35+10:00",
+  "generated_at": "2026-09-18T11:28:57+10:00",
   "mode": "live",
   "status": "no_active_warnings",
   "sources": {
     "warnings": {
       "status": "no_active_warnings",
       "message": "No active Queensland severe thunderstorm CAP warnings remained after validity filtering.",
-      "timestamp": "2026-09-18T01:20:36Z",
+      "timestamp": "2026-09-18T01:29:09Z",
       "url": "https://severeweather.wmo.int/v2/cap-alerts/au-bom-en/rss.xml",
       "count": 0
     },
     "outages": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-18T01:20:36Z",
+      "timestamp": "2026-09-18T01:29:09Z",
       "url": "https://raw.githubusercontent.com/gowlettluke/qldpoweroutages/main/data/current_outages.geojson",
       "count": 9
     },
     "road_closures": {
       "status": "ok",
       "message": "Live QLD Traffic events filtered to current road closures and conditional-access restrictions. Area-alert polygons are not treated as closed roads unless explicit road-line geometry is supplied.",
-      "timestamp": "2026-09-18T11:04:20.131316+10:00",
+      "timestamp": "2026-09-18T11:25:06.517868+10:00",
       "url": "https://data.qldtraffic.qld.gov.au/events_v2.geojson",
-      "count": 332
+      "count": 333
     },
     "lgas": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-18T01:20:44Z",
+      "timestamp": "2026-09-18T01:29:18Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdminBoundariesFramework/FeatureServer/11/query?where=1%3D1&outFields=%2A&returnGeometry=true&outSR=4326&f=geojson",
       "count": 78
     },
     "coastline": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-18T01:20:51Z",
+      "timestamp": "2026-09-18T01:29:24Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/55/query?where=1%3D1&outFields=feature_type&returnGeometry=true&outSR=4326&f=geojson",
       "count": 4721
     },
     "state_border": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-18T01:20:52Z",
+      "timestamp": "2026-09-18T01:29:25Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/5/query?where=1%3D1&outFields=border_desc%2Cstate_desc&returnGeometry=true&outSR=4326&f=geojson",
       "count": 124
     },
     "mainland": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-18T01:20:56Z",
+      "timestamp": "2026-09-18T01:29:29Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Location/GeographicalFeatures/FeatureServer/90/query?where=1%3D1&outFields=feature_type%2Cname&returnGeometry=true&outSR=4326&f=geojson",
       "count": 2
     },
     "population_centres": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-18T01:20:57Z",
+      "timestamp": "2026-09-18T01:29:31Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Location/Places/FeatureServer/20/query?where=1%3D1&outFields=name%2Cpopulation%2Coperational_status%2Cupper_scale&returnGeometry=true&outSR=4326&f=geojson",
       "count": 758
     },
     "major_roads": {
       "status": "ok",
       "message": null,
-      "timestamp": "2026-09-18T01:21:02Z",
+      "timestamp": "2026-09-18T01:29:34Z",
       "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/23/query?where=symbol_class+IN+%28%27Motorway%27%2C%27Highway%27%29&outFields=road_name_full%2Csymbol_class&returnGeometry=true&outSR=4326&f=geojson",
       "count": 10000
     },
@@ -115,9 +115,9 @@
       "customers_affected": 1698,
       "customers_known_outages": 9,
       "customer_labels_shown": 8,
-      "road_events_in_extent": 332,
+      "road_events_in_extent": 333,
       "roads_closed": 42,
-      "roads_restricted": 290,
+      "roads_restricted": 291,
       "road_labels_shown": 0
     }
   ],
