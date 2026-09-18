@@ -773,7 +773,7 @@
     ctx.textBaseline = "alphabetic";
     ctx.fillText(
       trackingEnabled
-        ? "Thunderstorm cell tracking overlay: storm cell, UTC time and direction."
+        ? "Thunderstorm cell tracking overlay: storm cell and direction."
         : "Bureau of Meteorology radar rain-rate symbology",
       16,
       y + 103
@@ -829,7 +829,7 @@
     ctx.textBaseline = "alphabetic";
     ctx.fillText(
       trackingEnabled
-        ? "Thunderstorm cell tracking overlay: storm cell, UTC time and direction."
+        ? "Thunderstorm cell tracking overlay: storm cell and direction."
         : "Road event names are intentionally omitted from the operational map.",
       16,
       y + 103
