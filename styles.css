@@ -166,6 +166,35 @@ button, a { font: inherit; }
 
 .utility-actions { justify-content: flex-end; }
 
+.tracking-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: .8rem;
+  font-weight: 650;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tracking-toggle:hover {
+  background: var(--panel2);
+  color: var(--text);
+}
+
+.tracking-toggle input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--blue);
+}
+
+
 button,
 .download {
   min-height: 30px;
