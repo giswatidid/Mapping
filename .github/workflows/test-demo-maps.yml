@@ -2,17 +2,6 @@ name: Test demo map generation
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - "src/generate.py"
-      - "src/render.py"
-      - "src/radar.py"
-      - "src/config.py"
-      - "src/sources.py"
-      - "tests/**"
-      - ".github/workflows/test-demo-maps.yml"
 
 permissions:
   contents: read
