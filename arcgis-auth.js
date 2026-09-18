@@ -27,6 +27,9 @@ let OAuthInfo;
 let Portal;
 let PortalItem;
 let WMSLayer;
+let ArcGISMap;
+let MapView;
+let reactiveUtils;
 let esriRequest;
 let portal;
 let portalUrl;
@@ -671,6 +674,87 @@ function configure(prefixValue) {
   ]);
 }
 
+async function renderTopographicBasemap(extent, width, height) {
+  if (!ArcGISMap || !MapView || !reactiveUtils) {
+    throw new Error("ArcGIS basemap rendering is not ready.");
+  }
+
+  const bounds = Array.isArray(extent)
+    ? extent
+    : [extent.xmin, extent.ymin, extent.xmax, extent.ymax];
+  const outputWidth = Math.max(64, Math.round(width));
+  const outputHeight = Math.max(64, Math.round(height));
+  const styleId = String(window.MAPPING_CONFIG?.rendering?.basemapStyle || "arcgis/topographic");
+
+  const container = document.createElement("div");
+  Object.assign(container.style, {
+    position: "fixed",
+    left: "-20000px",
+    top: "0",
+    width: outputWidth + "px",
+    height: outputHeight + "px",
+    pointerEvents: "none",
+    overflow: "hidden"
+  });
+  container.setAttribute("aria-hidden", "true");
+  document.body.appendChild(container);
+
+  const map = new ArcGISMap({ basemap: styleId });
+  const view = new MapView({
+    container,
+    map,
+    extent: {
+      xmin: bounds[0],
+      ymin: bounds[1],
+      xmax: bounds[2],
+      ymax: bounds[3],
+      spatialReference: { wkid: 4326 }
+    },
+    constraints: {
+      snapToZoom: false,
+      rotationEnabled: false
+    },
+    ui: { components: [] }
+  });
+
+  try {
+    await view.when();
+    await map.basemap?.loadAll?.();
+    await reactiveUtils.whenOnce(() => !view.updating);
+
+    // Give the browser two paint frames after the final tile update so the
+    // screenshot captures the completed vector basemap.
+    await new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
+
+    const screenshot = await view.takeScreenshot({
+      width: outputWidth,
+      height: outputHeight,
+      format: "png"
+    });
+
+    const attribution = [...new Set(
+      (view.attributionItems || [])
+        .map((item) => String(item?.text || "").trim())
+        .filter(Boolean)
+    )].join(" | ");
+
+    const response = await fetch(screenshot.dataUrl);
+    const blob = await response.blob();
+    if (!blob?.size) throw new Error("ArcGIS Topographic returned an empty screenshot.");
+
+    return {
+      blob,
+      style: styleId,
+      attribution
+    };
+  } finally {
+    view.destroy();
+    container.remove();
+  }
+}
+
 async function showApp() {
   portal = new Portal({ url: portalUrl, authMode: "immediate" });
   await portal.load();
@@ -695,6 +779,9 @@ async function showApp() {
     },
     renderWmsImage(role, extent, width, height, options={}) {
       return renderWmsPrintImage(role, extent, width, height, null, null, options);
+    },
+    renderBasemapImage(extent, width, height) {
+      return renderTopographicBasemap(extent, width, height);
     }
   };
 
@@ -729,12 +816,15 @@ async function startLogin(value) {
 }
 
 async function init() {
-  [OAuthInfo, esriId, Portal, PortalItem, WMSLayer, esriRequest] = await $arcgis.import([
+  [OAuthInfo, esriId, Portal, PortalItem, WMSLayer, ArcGISMap, MapView, reactiveUtils, esriRequest] = await $arcgis.import([
     "@arcgis/core/identity/OAuthInfo.js",
     "@arcgis/core/identity/IdentityManager.js",
     "@arcgis/core/portal/Portal.js",
     "@arcgis/core/portal/PortalItem.js",
     "@arcgis/core/layers/WMSLayer.js",
+    "@arcgis/core/Map.js",
+    "@arcgis/core/views/MapView.js",
+    "@arcgis/core/core/reactiveUtils.js",
     "@arcgis/core/request.js"
   ]);
 
