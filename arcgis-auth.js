@@ -274,7 +274,7 @@ async function getPortalItemAndData(source) {
   return { portalItem, data, serviceUrl: portalItem.url || null };
 }
 
-async function renderWmsPrintImage(role, extent, width, height, sourceOverride=null, metadataOverride=null) {
+async function renderWmsPrintImage(role, extent, width, height, sourceOverride=null, metadataOverride=null, options={}) {
   const spec = cfg.standardSources?.[role];
   const source = sourceOverride || runtimeSources.get(role)?.source || loadSavedSource(role);
   if (!spec || !source?.itemId) throw new Error("The standard " + role + " WMS has not been resolved.");
@@ -286,7 +286,26 @@ async function renderWmsPrintImage(role, extent, width, height, sourceOverride=n
   if (!serviceUrl) throw new Error("The authenticated WMS item does not expose a service URL.");
 
   const metadata = metadataOverride || findSublayerMetadata(data, spec.sublayerTitle);
-  const sublayerName = source.sublayerName || metadata?.name || spec.sublayerTitle;
+  const requestedTitles = Array.isArray(options?.sublayerTitles) && options.sublayerTitles.length
+    ? options.sublayerTitles
+    : [spec.sublayerTitle];
+
+  const resolvedSublayers = requestedTitles.map((title) => {
+    if (normalise(title) === normalise(spec.sublayerTitle) && source.sublayerName) {
+      return {
+        name: source.sublayerName,
+        title: spec.sublayerTitle
+      };
+    }
+
+    const found = findSublayerMetadata(data, title);
+    if (!found?.name) {
+      throw new Error('Required WMS sublayer is not available: "' + title + '".');
+    }
+    return found;
+  });
+
+  const sublayerNames = [...new Set(resolvedSublayers.map((entry) => entry.name))];
   const taskUrl = String(printTask).replace(/\/$/, "") + "/execute";
   const bounds = Array.isArray(extent) ? extent : [extent.xmin, extent.ymin, extent.xmax, extent.ymax];
 
@@ -311,8 +330,8 @@ async function renderWmsPrintImage(role, extent, width, height, sourceOverride=n
       version: "1.3.0",
       format: "png32",
       transparentBackground: true,
-      layers: [{ name: sublayerName }],
-      visibleLayers: [sublayerName]
+      layers: sublayerNames.map((name) => ({ name })),
+      visibleLayers: sublayerNames
     }],
     exportOptions: {
       outputSize: [Math.max(64, Math.round(width)), Math.max(64, Math.round(height))],
@@ -345,8 +364,10 @@ async function renderWmsPrintImage(role, extent, width, height, sourceOverride=n
   return {
     blob: imageResponse.data,
     url: output,
-    sublayerName,
-    sublayerTitle: metadata?.title || spec.sublayerTitle
+    sublayerName: sublayerNames[0],
+    sublayerTitle: resolvedSublayers[0]?.title || metadata?.title || spec.sublayerTitle,
+    sublayerNames,
+    sublayerTitles: resolvedSublayers.map((entry) => entry.title)
   };
 }
 
@@ -524,8 +545,8 @@ async function showApp() {
     createWmsLayer(role) {
       return createConfiguredWmsLayer(role);
     },
-    renderWmsImage(role, extent, width, height) {
-      return renderWmsPrintImage(role, extent, width, height);
+    renderWmsImage(role, extent, width, height, options={}) {
+      return renderWmsPrintImage(role, extent, width, height, null, null, options);
     }
   };
 
