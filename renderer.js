@@ -612,7 +612,7 @@
     ctx.textBaseline = "middle";
     for (const item of labelCandidates.slice(0, limit)) {
       const [x, y] = project(item.point);
-      const text = item.affected.toLocaleString("en-AU");
+      const text = "⚡ " + item.affected.toLocaleString("en-AU");
       if (!collisionFree(labels, x, y, text, 13)) continue;
       ctx.strokeStyle = "rgba(255,255,255,.95)";
       ctx.lineWidth = 4;
@@ -692,7 +692,7 @@
   function makeProductCanvas(mapWidth, mapHeight, title, subtitle) {
     const top = 66;
     const legendHeight = 116;
-    const footerHeight = 90;
+    const footerHeight = 72;
     const canvas = document.createElement("canvas");
     canvas.width = mapWidth;
     canvas.height = mapHeight + top + legendHeight + footerHeight;
@@ -839,7 +839,7 @@
     drawLegendLine(ctx, x, row1, "rgba(101,107,111,.72)", "Local government area boundary", 36);
 
     x = 16;
-    drawLegendBox(ctx, x, row2, "rgba(210,35,42,.22)", "#92141b", "Unplanned power outage area (number = customers affected)");
+    drawLegendBox(ctx, x, row2, "rgba(210,35,42,.22)", "#92141b", "Unplanned power outage area (⚡ number = customers affected)");
     x += 410;
     drawLegendLine(ctx, x, row2, "#bd1f24", "Road closed / impassable");
     x += 215;
@@ -886,7 +886,7 @@
     ctx.font = "12px Arial";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    lines.slice(0, 4).forEach((line, index) => {
+    lines.slice(0, 3).forEach((line, index) => {
       ctx.fillText(line, 14, y + 12 + index * 17);
     });
   }
@@ -1063,10 +1063,9 @@
     rctx.restore();
     drawRadarLegend(rctx, radarProduct, active, trackingEnabled);
     drawFooter(rctx, radarProduct, [
-      "Generated " + stamp + " · Warning and radar rendered through authenticated ArcGIS services." + (trackingEnabled ? " · Thunderstorm cell tracking included." : ""),
-      basemapAttribution,
-      "Queensland Government context: coastline, state border and LGAs.",
-      publicWarnings.length ? "Context warning: " + publicWarnings[0] : "Private weather data is not committed to GitHub."
+      "Generated " + stamp,
+      "Sources: Bureau of Meteorology warning/radar via ArcGIS · Queensland Government boundaries.",
+      basemapAttribution
     ]);
 
     const infraProduct = makeProductCanvas(
@@ -1090,19 +1089,14 @@
     ictx.strokeRect(0.5, 0.5, mapWidth - 1, mapHeight - 1);
     ictx.restore();
 
-    const knownCustomers = (publicData.outagesNorm || []).reduce((sum, outage) => sum + (outage.affected || 0), 0);
-    const fullClosures = (publicData.roadsNorm || []).filter((road) => road.passability === "impassable").length;
-    const restrictions = (publicData.roadsNorm || []).filter((road) => road.passability === "passable_with_conditions").length;
-
     const hasPointOutages = (publicData.outagesNorm || []).some((outage) =>
       outage.geometry?.type === "Point" || outage.geometry?.type === "MultiPoint"
     );
     drawInfrastructureLegend(ictx, infraProduct, active, hasPointOutages, trackingEnabled);
     drawFooter(ictx, infraProduct, [
-      "Generated " + stamp + " · " + (publicData.outagesNorm || []).length + " unplanned outage area(s), " + knownCustomers.toLocaleString("en-AU") + " known customers affected." + (trackingEnabled ? " · Thunderstorm cell tracking included." : ""),
-      "QLD Traffic: " + fullClosures + " full closure(s)" + (active ? " and " + restrictions + " restriction(s)." : "; conditional restrictions suppressed on statewide view."),
-      basemapAttribution,
-      publicWarnings.length ? "Context warning: " + publicWarnings[0] : "Road conditions: QLD Traffic · power outages: public Queensland outage feed."
+      "Generated " + stamp,
+      "Sources: Bureau of Meteorology warning via ArcGIS · Queensland power outage feed · QLD Traffic · Queensland Government boundaries.",
+      basemapAttribution
     ]);
 
     return {
