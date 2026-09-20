@@ -102,6 +102,20 @@ The affected-areas panel shows source state independently of warning activity. T
 
 Administrative-source resolution does not block map generation. Raster intersection is based on the same warning mask used for warning extent detection, not the rectangular map extent. Severe Thunderstorm analysis uses only `IDZ20006`; optional storm-cell/direction overlays do not affect the LGA or disaster-district result.
 
+## Warning-area traffic cameras
+
+For **Severe Thunderstorm** and **Severe Weather**, the browser also checks the Queensland Department of Transport and Main Roads QLDTraffic web-camera feed after the warning mask has been detected.
+
+- Source endpoint: `https://api.qldtraffic.qld.gov.au/v1/webcams`
+- The API returns GeoJSON Point features with camera metadata and the latest JPEG `image_url`.
+- TMR publishes a public developer API key for this feed; the public key is globally limited to 100 requests per minute.
+- Camera points are tested against the **actual warning raster mask**, not merely the warning bounding extent.
+- Only cameras inside warning pixels are listed.
+- The app does **not** download or embed camera images. Each result provides a **View latest image** link that opens the TMR image in a new tab.
+- Cameras are deliberately **not rendered onto either JPEG product**.
+
+The camera lookup is non-blocking. Once the warning mask is available, the QLDTraffic request runs independently while the map context and JPEG products continue rendering, so a slow or unavailable camera feed does not delay map generation.
+
 ## Public infrastructure and reference sources
 
 ### Power outages

@@ -105,6 +105,9 @@ window.MAPPING_CONFIG = {
   publicSources: {
     powerOutages: "https://raw.githubusercontent.com/gowlettluke/qldpoweroutages/main/data/current_outages.geojson",
     roadConditions: "https://data.qldtraffic.qld.gov.au/events_v2.geojson",
+    // Official QLDTraffic public developer key published by TMR for external
+    // developers. It is intentionally public and globally rate-limited.
+    trafficCameras: "https://api.qldtraffic.qld.gov.au/v1/webcams?apikey=3e83add325cbb69ac4d8e5bf433d770b",
     lga: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdministrativeBoundaries/MapServer/1",
     coastline: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/55",
     stateBorder: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/5",

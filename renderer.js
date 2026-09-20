@@ -35,6 +35,9 @@
   const affectedDistrictList = document.querySelector("#affectedDistrictList");
   const affectedDistrictSource = document.querySelector("#affectedDistrictSource");
   const affectedDistrictSourceState = document.querySelector("#affectedDistrictSourceState");
+  const cameraPanel = document.querySelector("#cameraPanel");
+  const cameraStatus = document.querySelector("#cameraStatus");
+  const cameraList = document.querySelector("#cameraList");
   const TRACKING_PREF_KEY = "mapping.includeThunderstormCellTracking";
   const PROFILE_PREF_KEY = "mapping.warningProfile";
   const PROFILES = cfg.arcgis?.warningProfiles || {};
@@ -46,6 +49,7 @@
   let floodScanned = false;
   let floodCandidates = [];
   let selectedFloodCandidateId = null;
+  let cameraAnalysisRun = 0;
   const adminBoundaryState = {
     localGovernment: { status: "resolving", layer: null, error: "" },
     disasterDistricts: { status: "resolving", layer: null, error: "" }
@@ -144,6 +148,7 @@
     if (trackingToggleLabel) trackingToggleLabel.hidden = !profile.supportsTracking;
     if (floodSelectionPanel) floodSelectionPanel.hidden = !isFlooding;
     if (affectedAreasPanel) affectedAreasPanel.hidden = isFlooding;
+    if (cameraPanel) cameraPanel.hidden = isFlooding;
     if (mapProductsDescription) {
       mapProductsDescription.textContent = isFlooding
         ? "Exactly two products are generated for the selected Flood Warning or Flood Watch: Warning/Watch + Radar and Warning/Watch + Infrastructure Impacts."
@@ -170,7 +175,9 @@
 
   function clearGeneratedProducts(message) {
     revokeOutputs();
+    cameraAnalysisRun += 1;
     resetAffectedAreas();
+    resetCameraPanel();
     if (mapsEl) mapsEl.innerHTML = "";
     if (emptyEl) {
       emptyEl.hidden = false;
@@ -340,6 +347,166 @@
       adminBoundaryState.disasterDistricts.status = "authenticated";
     }
     renderBoundarySourceState();
+  }
+
+  function resetCameraPanel(message="Generate a Severe Thunderstorm or Severe Weather map to find cameras inside the warning area.") {
+    if (cameraStatus) cameraStatus.textContent = "Generate to analyse";
+    if (!cameraList) return;
+    cameraList.innerHTML = "";
+    const empty = document.createElement("div");
+    empty.className = "empty-state camera-empty";
+    empty.textContent = message;
+    cameraList.appendChild(empty);
+  }
+
+  function warningMaskContainsPoint(mask, coordinates) {
+    if (!mask?.visible || !Array.isArray(coordinates) || coordinates.length < 2) return false;
+    const lon = Number(coordinates[0]);
+    const lat = Number(coordinates[1]);
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return false;
+
+    const [xmin, ymin, xmax, ymax] = mask.extent || QLD_EXTENT;
+    if (lon < xmin || lon > xmax || lat < ymin || lat > ymax) return false;
+
+    const px = (lon - xmin) / Math.max(Number.EPSILON, xmax - xmin) * mask.width;
+    const py = (ymax - lat) / Math.max(Number.EPSILON, ymax - ymin) * mask.height;
+    const gx = clamp(Math.floor(px / mask.step), 0, mask.gridWidth - 1);
+    const gy = clamp(Math.floor(py / mask.step), 0, mask.gridHeight - 1);
+    return Boolean(mask.visible[gy * mask.gridWidth + gx]);
+  }
+
+  function safeCameraImageUrl(value) {
+    try {
+      const url = new URL(String(value || ""), window.location.href);
+      if (!["http:", "https:"].includes(url.protocol)) return "";
+      if (url.protocol === "http:" && url.hostname.endsWith("qldtraffic.qld.gov.au")) {
+        url.protocol = "https:";
+      }
+      return url.toString();
+    } catch {
+      return "";
+    }
+  }
+
+  function normaliseTrafficCamera(feature) {
+    if (feature?.geometry?.type !== "Point") return null;
+    const coordinates = feature.geometry.coordinates;
+    if (!Array.isArray(coordinates) || coordinates.length < 2) return null;
+    const props = feature.properties || {};
+    const imageUrl = safeCameraImageUrl(props.image_url);
+    if (!imageUrl) return null;
+
+    const description = String(props.description || "").trim();
+    const locality = String(props.locality || "").trim();
+    const direction = String(props.direction || "").trim();
+    const district = String(props.district || "").trim();
+    const postcode = String(props.postcode || "").trim();
+
+    return {
+      id: String(props.id ?? imageUrl),
+      coordinates: [Number(coordinates[0]), Number(coordinates[1])],
+      description: description || locality || "QLDTraffic camera",
+      locality,
+      direction,
+      district,
+      postcode,
+      imageUrl
+    };
+  }
+
+  function renderCameraMatches(cameras, runId) {
+    if (runId !== cameraAnalysisRun || !cameraList) return;
+    cameraList.innerHTML = "";
+
+    if (!cameras.length) {
+      if (cameraStatus) cameraStatus.textContent = "0 cameras";
+      const empty = document.createElement("div");
+      empty.className = "empty-state camera-empty";
+      empty.textContent = "No QLDTraffic traffic cameras were detected inside the current warning pixels.";
+      cameraList.appendChild(empty);
+      return;
+    }
+
+    if (cameraStatus) {
+      cameraStatus.textContent = cameras.length + " camera" + (cameras.length === 1 ? "" : "s");
+    }
+
+    cameras.forEach((camera) => {
+      const item = document.createElement("article");
+      item.className = "camera-item";
+
+      const copy = document.createElement("div");
+      copy.className = "camera-copy";
+
+      const title = document.createElement("strong");
+      title.textContent = camera.description;
+
+      const parts = [camera.locality, camera.direction, camera.district].filter(Boolean);
+      const meta = document.createElement("small");
+      meta.textContent = parts.join(" · ") || "QLDTraffic traffic camera";
+
+      const link = document.createElement("a");
+      link.className = "camera-link";
+      link.href = camera.imageUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "View latest image";
+
+      copy.append(title, meta);
+      item.append(copy, link);
+      cameraList.appendChild(item);
+    });
+  }
+
+  async function analyseCamerasForWarning(warning, profile, runId) {
+    if (runId !== cameraAnalysisRun || profile?.key === "flooding") return;
+
+    if (!warning?.active || !warning?.mask) {
+      if (cameraStatus) cameraStatus.textContent = "No active warning";
+      resetCameraPanel("No active warning pixels were detected, so there are no warning-area cameras to list.");
+      if (cameraStatus) cameraStatus.textContent = "No active warning";
+      return;
+    }
+
+    if (cameraStatus) cameraStatus.textContent = "Checking…";
+    if (cameraList) {
+      cameraList.innerHTML = "";
+      const empty = document.createElement("div");
+      empty.className = "empty-state camera-empty";
+      empty.textContent = "Checking QLDTraffic camera locations against the warning pixels…";
+      cameraList.appendChild(empty);
+    }
+
+    try {
+      if (!publicSources.trafficCameras) throw new Error("QLDTraffic camera feed is not configured.");
+      const payload = await promiseTimeout(
+        fetchJson(publicSources.trafficCameras),
+        10000,
+        "QLDTraffic camera request timed out."
+      );
+      if (runId !== cameraAnalysisRun) return;
+
+      const cameras = (payload?.features || [])
+        .map(normaliseTrafficCamera)
+        .filter(Boolean)
+        .filter((camera) => warningMaskContainsPoint(warning.mask, camera.coordinates))
+        .sort((a, b) => {
+          const localityCompare = a.locality.localeCompare(b.locality, "en-AU");
+          return localityCompare || a.description.localeCompare(b.description, "en-AU");
+        });
+
+      renderCameraMatches(cameras, runId);
+    } catch (error) {
+      if (runId !== cameraAnalysisRun) return;
+      if (cameraStatus) cameraStatus.textContent = "Unavailable";
+      if (cameraList) {
+        cameraList.innerHTML = "";
+        const empty = document.createElement("div");
+        empty.className = "empty-state camera-empty";
+        empty.textContent = "Camera feed unavailable for this run: " + cleanMessage(error, "QLDTraffic camera request failed.");
+        cameraList.appendChild(empty);
+      }
+    }
   }
 
   function promiseTimeout(promise, ms, message) {
@@ -2037,6 +2204,11 @@
       const extent = warning.extent;
       const statewide = !warning.active;
 
+      if (profile.key !== "flooding") {
+        const cameraRunId = ++cameraAnalysisRun;
+        void analyseCamerasForWarning(warning, profile, cameraRunId);
+      }
+
       if (warningCount && profile.key !== "flooding") warningCount.textContent = warning.active ? "Active" : "0";
       if (modeEl) modeEl.textContent = statewide ? "Statewide" : (selection?.typeLabel || "Warning extent");
 
@@ -2155,6 +2327,7 @@
 
   updateProfileControls();
   renderBoundarySourceState();
+  resetCameraPanel();
   if (modeEl) modeEl.textContent = currentProfile().label;
   updateWarningSourceDetail();
 })();

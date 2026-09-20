@@ -7,8 +7,8 @@
   <meta name="theme-color" content="#12161d" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
   <title>Queensland Warning Mapping</title>
-  <link rel="stylesheet" href="styles.css?v=20260920-browser24">
-  <link rel="stylesheet" href="auth.css?v=20260920-browser24">
+  <link rel="stylesheet" href="styles.css?v=20260920-browser25">
+  <link rel="stylesheet" href="auth.css?v=20260920-browser25">
 </head>
 <body>
   <main id="loginGate" class="auth-page" hidden>
@@ -155,6 +155,22 @@
         </div>
       </section>
 
+      <section id="cameraPanel" class="panel camera-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>Cameras in warning area</h2>
+            <p>Checks QLDTraffic traffic-camera points against the actual Severe Thunderstorm or Severe Weather warning pixels. Camera images are not loaded into this page or added to the JPEGs.</p>
+          </div>
+          <div class="panel-scope"><span id="cameraStatus" class="mini-chip">Generate to analyse</span></div>
+        </div>
+        <div class="panel-body">
+          <div id="cameraList" class="camera-list">
+            <div class="empty-state camera-empty">Generate a Severe Thunderstorm or Severe Weather map to find traffic cameras inside the warning area.</div>
+          </div>
+          <p class="camera-note">Source: Queensland Department of Transport and Main Roads QLDTraffic web-camera feed. Links open the latest still image in a new tab.</p>
+        </div>
+      </section>
+
       <section id="floodSelectionPanel" class="panel flood-selection-panel" hidden>
         <div class="panel-header">
           <div class="panel-title">
@@ -206,10 +222,10 @@
     </footer>
   </div>
 
-  <script src="config.js?v=20260920-browser24"></script>
+  <script src="config.js?v=20260920-browser25"></script>
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
-  <script type="module" src="arcgis-auth.js?v=20260920-browser24"></script>
-  <script src="app.js?v=20260920-browser24"></script>
-  <script src="renderer.js?v=20260920-browser24"></script>
+  <script type="module" src="arcgis-auth.js?v=20260920-browser25"></script>
+  <script src="app.js?v=20260920-browser25"></script>
+  <script src="renderer.js?v=20260920-browser25"></script>
 </body>
 </html>
