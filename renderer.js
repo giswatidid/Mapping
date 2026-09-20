@@ -262,7 +262,9 @@
     } else if (district.status === "unavailable") {
       setBoundarySourceBadge(affectedDistrictSourceState, "error", "Unavailable");
       if (affectedDistrictSource) {
-        affectedDistrictSource.textContent = "Queensland Disaster District Management Groups could not be resolved from accessible ArcGIS content.";
+        affectedDistrictSource.textContent = district.error
+          ? "Unavailable: " + district.error
+          : "Disaster District service could not be resolved from accessible ArcGIS content.";
       }
     } else {
       setBoundarySourceBadge(affectedDistrictSourceState, "warning", "Resolving");

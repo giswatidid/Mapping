@@ -458,7 +458,6 @@ function publicAdministrativeLayer(layer) {
 
 async function findExactAdministrativePortalItem(spec) {
   const wantedTitle = normalise(spec.itemTitle);
-  const wantedType = normalise(spec.itemType || "Feature Service");
   const byId = new Map();
 
   try {
@@ -470,7 +469,6 @@ async function findExactAdministrativePortalItem(spec) {
     });
     (result.results || []).forEach((item) => {
       if (normalise(item.title) !== wantedTitle) return;
-      if (wantedType && normalise(item.type) !== wantedType) return;
       byId.set(item.id, item);
     });
   } catch {}
@@ -491,7 +489,6 @@ async function findExactAdministrativePortalItem(spec) {
         if (entry.status !== "fulfilled") return;
         entry.value.forEach((item) => {
           if (normalise(item.title) !== wantedTitle) return;
-          if (wantedType && normalise(item.type) !== wantedType) return;
           byId.set(item.id, item);
         });
       });
@@ -508,10 +505,7 @@ async function resolveExactPortalAdministrativeLayer(key, spec, saved=null) {
     try {
       const candidate = new PortalItem({ id: saved.itemId, portal });
       await candidate.load();
-      if (
-        normalise(candidate.title) === normalise(spec.itemTitle) &&
-        normalise(candidate.type) === normalise(spec.itemType || "Feature Service")
-      ) {
+      if (normalise(candidate.title) === normalise(spec.itemTitle)) {
         portalItem = candidate;
       }
     } catch {}
@@ -527,7 +521,7 @@ async function resolveExactPortalAdministrativeLayer(key, spec, saved=null) {
   }
 
   if (!portalItem.url) {
-    throw new Error('The ArcGIS item "' + spec.itemTitle + '" does not expose a feature-service URL.');
+    throw new Error('The ArcGIS item "' + spec.itemTitle + '" does not expose a service URL.');
   }
 
   const layerUrl = administrativeLayerUrl(portalItem.url, spec.layerId);
@@ -564,7 +558,7 @@ async function resolveExactPortalAdministrativeLayer(key, spec, saved=null) {
     sourceType: "authenticated",
     itemId: portalItem.id,
     itemTitle: portalItem.title || spec.itemTitle,
-    itemType: portalItem.type || spec.itemType,
+    itemType: portalItem.type || null,
     modified: portalItem.modified || null,
     layerId: Number(spec.layerId),
     layerTitle: String(metadata.name || spec.layerTitle),

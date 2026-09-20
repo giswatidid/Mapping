@@ -94,7 +94,7 @@ For **Severe Thunderstorm** and **Severe Weather**, the browser analyses the act
 The boundary sources are deterministic:
 
 - **Local government** uses the Queensland Government `Boundaries/AdministrativeBoundaries/MapServer/1` polygon layer directly. Its display/name field is `lga`.
-- **Disaster districts** are resolved after ArcGIS sign-in by the exact accessible item title `Queensland_Disaster_District_Management_Groups`. The app then verifies feature-service layer `0`, named `DDMG_websites`, with display/name field `PROP_DD`.
+- **Disaster districts** are resolved after ArcGIS sign-in by the exact accessible service item title `District_Disaster_Management_Groups_DDMG_Boundary_Status_Url`. The app does not depend on the portal UI's item-type label; it verifies the service itself, then requires layer `0`, named `DDMG_websites`, polygon geometry, query support, and display/name field `PROP_DD`.
 
 No private disaster-district item ID or service URL is hard-coded in the repository. The authenticated service URL is obtained from the matched ArcGIS item at runtime and remains in browser memory. The resolved item ID/layer identity may be cached locally for that signed-in organisation.
 

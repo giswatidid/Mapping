@@ -65,8 +65,7 @@ window.MAPPING_CONFIG = {
       },
       disasterDistricts: {
         sourceType: "portal-item",
-        itemTitle: "Queensland_Disaster_District_Management_Groups",
-        itemType: "Feature Service",
+        itemTitle: "District_Disaster_Management_Groups_DDMG_Boundary_Status_Url",
         layerId: 0,
         layerTitle: "DDMG_websites",
         nameField: "PROP_DD"
