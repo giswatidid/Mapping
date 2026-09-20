@@ -656,3 +656,67 @@ main { display: grid; gap: 10px; }
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Affected administrative area analysis */
+.affected-area-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.affected-area-card {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+}
+
+.affected-area-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.affected-area-heading span {
+  color: var(--text);
+  font-weight: 800;
+  font-size: .9rem;
+}
+
+.affected-area-heading strong {
+  min-width: 28px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel2);
+  color: var(--blue);
+  text-align: center;
+  font-size: .82rem;
+}
+
+.affected-area-card p {
+  margin: 8px 0 6px;
+  color: var(--text);
+  font-size: .84rem;
+  line-height: 1.45;
+}
+
+.affected-area-card small {
+  display: block;
+  color: var(--muted);
+  font-size: .73rem;
+  line-height: 1.35;
+}
+
+.affected-areas-panel[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 760px) {
+  .affected-area-grid {
+    grid-template-columns: 1fr;
+  }
+}

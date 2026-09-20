@@ -25,6 +25,14 @@
   const floodSelectionStatus = document.querySelector("#floodSelectionStatus");
   const floodSelectionNote = document.querySelector("#floodSelectionNote");
   const refreshFloodProductsButton = document.querySelector("#refreshFloodProducts");
+  const affectedAreasPanel = document.querySelector("#affectedAreasPanel");
+  const affectedAreasStatus = document.querySelector("#affectedAreasStatus");
+  const affectedLgaCount = document.querySelector("#affectedLgaCount");
+  const affectedLgaList = document.querySelector("#affectedLgaList");
+  const affectedLgaSource = document.querySelector("#affectedLgaSource");
+  const affectedDistrictCount = document.querySelector("#affectedDistrictCount");
+  const affectedDistrictList = document.querySelector("#affectedDistrictList");
+  const affectedDistrictSource = document.querySelector("#affectedDistrictSource");
   const TRACKING_PREF_KEY = "mapping.includeThunderstormCellTracking";
   const PROFILE_PREF_KEY = "mapping.warningProfile";
   const PROFILES = cfg.arcgis?.warningProfiles || {};
@@ -129,6 +137,7 @@
 
     if (trackingToggleLabel) trackingToggleLabel.hidden = !profile.supportsTracking;
     if (floodSelectionPanel) floodSelectionPanel.hidden = !isFlooding;
+    if (affectedAreasPanel) affectedAreasPanel.hidden = isFlooding;
     if (mapProductsDescription) {
       mapProductsDescription.textContent = isFlooding
         ? "Exactly two products are generated for the selected Flood Warning or Flood Watch: Warning/Watch + Radar and Warning/Watch + Infrastructure Impacts."
@@ -155,6 +164,7 @@
 
   function clearGeneratedProducts(message) {
     revokeOutputs();
+    resetAffectedAreas();
     if (mapsEl) mapsEl.innerHTML = "";
     if (emptyEl) {
       emptyEl.hidden = false;
@@ -193,6 +203,63 @@
 
     if (profile.key === "flooding" && feedsReady && scanFloods && !scanningFloods) {
       scanFloodProducts().catch(() => {});
+    }
+  }
+
+  function resetAffectedAreas(message="Generate a Severe Thunderstorm or Severe Weather map to analyse affected areas.") {
+    if (affectedAreasStatus) affectedAreasStatus.textContent = "Generate to analyse";
+    if (affectedLgaCount) affectedLgaCount.textContent = "—";
+    if (affectedDistrictCount) affectedDistrictCount.textContent = "—";
+    if (affectedLgaList) affectedLgaList.textContent = message;
+    if (affectedDistrictList) affectedDistrictList.textContent = message;
+    if (affectedLgaSource) {
+      affectedLgaSource.textContent = "Authenticated Local government layer preferred; public Queensland LGA boundaries are the fallback.";
+    }
+    if (affectedDistrictSource) {
+      affectedDistrictSource.textContent = "Uses the authenticated Queensland Disaster District Management Groups layer when it can be resolved.";
+    }
+  }
+
+  function renderAffectedAreas(result) {
+    if (!result || currentProfile().key === "flooding") return;
+
+    if (!result.active) {
+      if (affectedAreasStatus) affectedAreasStatus.textContent = "No active warning";
+      if (affectedLgaCount) affectedLgaCount.textContent = "0";
+      if (affectedDistrictCount) affectedDistrictCount.textContent = "0";
+      if (affectedLgaList) affectedLgaList.textContent = "No active warning pixels detected in Queensland.";
+      if (affectedDistrictList) affectedDistrictList.textContent = "No active warning pixels detected in Queensland.";
+      return;
+    }
+
+    const lgas = result.lgas || [];
+    const districts = result.districts || [];
+    if (affectedAreasStatus) {
+      const districtSummary = result.districtAvailable
+        ? districts.length + " district" + (districts.length === 1 ? "" : "s")
+        : "districts unavailable";
+      affectedAreasStatus.textContent = lgas.length + " LGA" + (lgas.length === 1 ? "" : "s") +
+        " · " + districtSummary;
+    }
+    if (affectedLgaCount) affectedLgaCount.textContent = String(lgas.length);
+    if (affectedDistrictCount) affectedDistrictCount.textContent = result.districtAvailable ? String(districts.length) : "—";
+    if (affectedLgaList) {
+      affectedLgaList.textContent = lgas.length ? lgas.join(" · ") : "No LGA intersections detected.";
+    }
+    if (affectedDistrictList) {
+      affectedDistrictList.textContent = result.districtAvailable
+        ? (districts.length ? districts.join(" · ") : "No disaster-district intersections detected.")
+        : "Authenticated disaster-district layer could not be resolved for this session.";
+    }
+    if (affectedLgaSource) {
+      affectedLgaSource.textContent = result.lgaSource === "authenticated"
+        ? "Source: authenticated Local government polygon layer."
+        : "Source: public Queensland Government LGA boundary fallback.";
+    }
+    if (affectedDistrictSource) {
+      affectedDistrictSource.textContent = result.districtAvailable
+        ? "Source: authenticated Queensland Disaster District Management Groups polygon layer."
+        : "Disaster district source unavailable; no district names have been inferred.";
     }
   }
 
@@ -324,8 +391,18 @@
       }
     }
 
+    const mask = {
+      visible,
+      gridWidth,
+      gridHeight,
+      step,
+      width: canvas.width,
+      height: canvas.height,
+      extent: [...QLD_EXTENT]
+    };
+
     if (hits < 35 || maxX < minX || maxY < minY) {
-      return { active: false, extent: [...QLD_EXTENT], components: [] };
+      return { active: false, extent: [...QLD_EXTENT], components: [], mask };
     }
 
     const rawExtent = [
@@ -336,7 +413,7 @@
     ];
 
     if (!components) {
-      return { active: true, extent: padGeographicExtent(rawExtent), components: [] };
+      return { active: true, extent: padGeographicExtent(rawExtent), components: [], mask };
     }
 
     const visited = new Uint8Array(visible.length);
@@ -412,7 +489,8 @@
     return {
       active: true,
       extent: padGeographicExtent(rawExtent),
-      components: found.sort((a, b) => b.hits - a.hits)
+      components: found.sort((a, b) => b.hits - a.hits),
+      mask
     };
   }
 
@@ -639,12 +717,49 @@
       });
   }
 
-  async function loadPublicData(extent, statewide) {
+  async function loadPreferredLga(extent) {
+    const arcgis = window.MAPPING_ARCGIS;
+    if (arcgis?.queryAdministrativeLayer) {
+      try {
+        const privateLga = await arcgis.queryAdministrativeLayer("localGovernment", extent, "*");
+        if (Array.isArray(privateLga?.features) && privateLga.features.length) {
+          return { ...privateLga, _source: "authenticated" };
+        }
+      } catch {}
+    }
+
+    const fallback = await queryArcgis(publicSources.lga, extent, "1=1", "*");
+    return { ...fallback, _source: "public" };
+  }
+
+  async function loadDisasterDistricts(extent) {
+    const arcgis = window.MAPPING_ARCGIS;
+    if (!arcgis?.queryAdministrativeLayer) {
+      return { type: "FeatureCollection", features: [], _source: "unavailable" };
+    }
+
+    try {
+      const districts = await arcgis.queryAdministrativeLayer("disasterDistricts", extent, "*");
+      return { ...districts, _source: "authenticated" };
+    } catch (error) {
+      return {
+        type: "FeatureCollection",
+        features: [],
+        _source: "unavailable",
+        _error: cleanMessage(error, "Authenticated disaster-district layer could not be resolved.")
+      };
+    }
+  }
+
+  async function loadPublicData(extent, statewide, { includeDisasterDistricts=false }={}) {
     const jobs = {
       mainland: queryArcgis(publicSources.mainland, extent, "1=1", "feature_type,name"),
       coastline: queryArcgis(publicSources.coastline, extent, "1=1", "feature_type"),
       border: queryArcgis(publicSources.stateBorder, extent, "1=1", "border_desc,state_desc"),
-      lga: queryArcgis(publicSources.lga, extent, "1=1", "*"),
+      lga: loadPreferredLga(extent),
+      disasterDistricts: includeDisasterDistricts
+        ? loadDisasterDistricts(extent)
+        : Promise.resolve({ type: "FeatureCollection", features: [], _source: "not-requested" }),
       roads: queryArcgis(publicSources.majorRoads, extent, "symbol_class IN ('Motorway','Highway')", "road_name_full,symbol_class"),
       centres: queryArcgis(publicSources.populationCentres, extent, "1=1", "name,population,operational_status,upper_scale"),
       outages: fetchJson(publicSources.powerOutages),
@@ -715,6 +830,93 @@
       );
     }
     return false;
+  }
+
+  function administrativeName(feature, kind) {
+    const props = feature?.properties || {};
+    const aliases = kind === "district"
+      ? [
+          "ddmg_name", "ddmg", "disaster_district_name", "disaster_district",
+          "district_name", "district", "name", "NAME"
+        ]
+      : [
+          "lga_name", "lga_name24", "lga", "local_government",
+          "local_government_area", "council_name", "name", "NAME"
+        ];
+
+    const direct = propertyValue(props, aliases);
+    if (direct) return direct;
+
+    const preferredKey = Object.keys(props).find((key) => {
+      const normal = String(key).toLowerCase();
+      if (kind === "district") return normal.includes("district") && normal.includes("name");
+      return (normal.includes("lga") || normal.includes("local_government")) && normal.includes("name");
+    });
+    const value = preferredKey ? props[preferredKey] : "";
+    return value == null ? "" : String(value).trim();
+  }
+
+  function warningMaskIntersectsGeometry(mask, geometry) {
+    if (!mask?.visible || !geometry) return false;
+    const bbox = geometryBounds(geometry);
+    if (!bbox) return false;
+
+    const [xmin, ymin, xmax, ymax] = mask.extent || QLD_EXTENT;
+    const lonSpan = Math.max(Number.EPSILON, xmax - xmin);
+    const latSpan = Math.max(Number.EPSILON, ymax - ymin);
+    const pixelX = (lon) => (lon - xmin) / lonSpan * mask.width;
+    const pixelY = (lat) => (ymax - lat) / latSpan * mask.height;
+
+    const gx0 = clamp(Math.floor(pixelX(bbox[0]) / mask.step) - 1, 0, mask.gridWidth - 1);
+    const gx1 = clamp(Math.ceil(pixelX(bbox[2]) / mask.step) + 1, 0, mask.gridWidth - 1);
+    const gy0 = clamp(Math.floor(pixelY(bbox[3]) / mask.step) - 1, 0, mask.gridHeight - 1);
+    const gy1 = clamp(Math.ceil(pixelY(bbox[1]) / mask.step) + 1, 0, mask.gridHeight - 1);
+    if (gx1 < gx0 || gy1 < gy0) return false;
+
+    const bboxCells = (gx1 - gx0 + 1) * (gy1 - gy0 + 1);
+    const requiredHits = bboxCells <= 16 ? 1 : 3;
+    let hits = 0;
+
+    for (let gy = gy0; gy <= gy1; gy += 1) {
+      for (let gx = gx0; gx <= gx1; gx += 1) {
+        if (!mask.visible[gy * mask.gridWidth + gx]) continue;
+        const x = Math.min(mask.width - 1, gx * mask.step);
+        const y = Math.min(mask.height - 1, gy * mask.step);
+        const point = pixelToGeographic(x, y, mask.width, mask.height, mask.extent);
+        if (!pointInGeometry(point, geometry)) continue;
+        hits += 1;
+        if (hits >= requiredHits) return true;
+      }
+    }
+
+    return false;
+  }
+
+  function affectedAdministrativeNames(mask, collection, kind) {
+    const names = new Set();
+    for (const feature of collection?.features || []) {
+      if (!feature?.geometry || !warningMaskIntersectsGeometry(mask, feature.geometry)) continue;
+      const name = administrativeName(feature, kind);
+      if (name) names.add(name);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, "en-AU"));
+  }
+
+  function analyseAffectedAreas(warning, data) {
+    if (!warning?.active || !warning?.mask) {
+      return { active: false, lgas: [], districts: [], districtAvailable: true };
+    }
+
+    const districtAvailable = data.disasterDistricts?._source === "authenticated";
+    return {
+      active: true,
+      lgas: affectedAdministrativeNames(warning.mask, data.lga, "lga"),
+      districts: districtAvailable
+        ? affectedAdministrativeNames(warning.mask, data.disasterDistricts, "district")
+        : [],
+      lgaSource: data.lga?._source || "public",
+      districtAvailable
+    };
   }
 
   function catchmentAtPoint(collection, point) {
@@ -1082,8 +1284,8 @@
 
   function candidateName(props) {
     const keys = [
-      "lga_name", "LGA_NAME", "lga", "LGA", "name", "NAME",
-      "local_government_area", "locality", "road_name_full"
+      "lga_name", "LGA_NAME", "lga_name24", "LGA_NAME24", "lga", "LGA", "name", "NAME",
+      "local_government", "local_government_area", "council_name", "locality", "road_name_full"
     ];
     for (const key of keys) {
       const value = props?.[key];
@@ -1749,7 +1951,13 @@
       if (modeEl) modeEl.textContent = statewide ? "Statewide" : (selection?.typeLabel || "Warning extent");
 
       emptyEl.textContent = "Loading public Queensland context, outage and road-condition data…";
-      const { data, warnings } = await loadPublicData(extent, statewide);
+      const { data, warnings } = await loadPublicData(extent, statewide, {
+        includeDisasterDistricts: profile.key !== "flooding"
+      });
+
+      if (profile.key !== "flooding") {
+        renderAffectedAreas(analyseAffectedAreas(warning, data));
+      }
 
       emptyEl.textContent = "Rendering authenticated weather imagery and composing JPEG products…";
       const products = await buildProducts(extent, warning.active, data, warnings, profile, selection);

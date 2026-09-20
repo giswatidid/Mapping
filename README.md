@@ -84,6 +84,24 @@ Required sublayer:
 
 The item IDs and service URLs are discovered after authentication and are never hard-coded in the repository.
 
+## Authenticated administrative boundaries and affected areas
+
+For **Severe Thunderstorm** and **Severe Weather**, the browser analyses the actual visible warning raster pixels against administrative polygon layers after generation. It reports:
+
+- Local government areas intersected by the warning pixels
+- Queensland disaster districts intersected by the warning pixels
+
+The ArcGIS session attempts to resolve these layers by their displayed hierarchy rather than by hard-coded item IDs or service URLs:
+
+- `Portfolio Admin > Boundaries > Administrative Boundaries > Local government`
+- `Portfolio Admin > Boundaries > Administrative Boundaries > Queensland Disaster District Management Groups`
+
+The resolver searches accessible Web Map, Feature Service and Map Service content, recursively inspects nested layer definitions, and verifies that the selected leaf layer is a queryable polygon layer. Resolved private service URLs remain in browser memory only; the browser may cache the item/layer identifiers and matched path for that signed-in organisation.
+
+The authenticated **Local government** layer is preferred for both warning/LGA analysis and map context. If it cannot be resolved, the existing public Queensland Government LGA FeatureServer remains the fallback. Disaster districts are not inferred from another dataset: if the authenticated district layer cannot be resolved, the UI reports them as unavailable.
+
+Raster intersection is based on the same warning mask used for warning extent detection, not the rectangular map extent. Severe Thunderstorm analysis uses only `IDZ20006`; optional storm-cell/direction overlays do not affect the LGA or disaster-district result.
+
 ## Public infrastructure and reference sources
 
 ### Power outages
@@ -117,7 +135,7 @@ They do not replace the authenticated active Flood Warning/Flood Watch WMS layer
 
 ### Queensland Government reference data
 
-- LGA boundaries: `Boundaries/AdminBoundariesFramework/FeatureServer/11`
+- LGA boundaries fallback: `Boundaries/AdminBoundariesFramework/FeatureServer/11`
 - coastline: `Basemaps/FoundationData/FeatureServer/55`
 - state border: `Basemaps/FoundationData/FeatureServer/5`
 - mainland/land polygon: `Location/GeographicalFeatures/FeatureServer/90`

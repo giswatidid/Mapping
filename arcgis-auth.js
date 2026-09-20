@@ -1,6 +1,7 @@
 const cfg = window.MAPPING_CONFIG?.arcgis || {};
 const ORG_KEY = "mapping.arcgis.orgPrefix";
 const SOURCE_KEY = "mapping.arcgis.standardSources.";
+const ADMIN_KEY = "mapping.arcgis.administrativeLayers.";
 
 const q = (selector) => document.querySelector(selector);
 const ui = {
@@ -35,6 +36,7 @@ let portal;
 let portalUrl;
 
 const runtimeSources = new Map();
+const runtimeAdminLayers = new Map();
 
 function getLocal(key) {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -70,6 +72,32 @@ function loadSavedSource(role) {
 
 function saveSource(role, source) {
   setLocal(sourceStorageKey(role), JSON.stringify(source));
+}
+
+function adminStorageKey(key) {
+  return ADMIN_KEY + orgPrefix(getLocal(ORG_KEY)) + "." + key;
+}
+
+function loadSavedAdminLayer(key) {
+  try {
+    return JSON.parse(getLocal(adminStorageKey(key)) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function saveAdminLayer(key, layer) {
+  const safe = {
+    itemId: layer.itemId,
+    itemTitle: layer.itemTitle || null,
+    itemType: layer.itemType || null,
+    modified: layer.modified || null,
+    layerId: Number.isFinite(Number(layer.layerId)) ? Number(layer.layerId) : null,
+    layerTitle: layer.layerTitle || null,
+    path: Array.isArray(layer.path) ? layer.path.slice(0, 12) : [],
+    verifiedAt: new Date().toISOString()
+  };
+  setLocal(adminStorageKey(key), JSON.stringify(safe));
 }
 
 function authStatus(message = "", type = "info") {
@@ -159,6 +187,369 @@ function normalisePortalItem(item, groupTitles = []) {
     owner: item.owner || null,
     modified: item.modified || null,
     groupTitles: [...new Set(groupTitles.filter(Boolean))]
+  };
+}
+
+function adminLayerPathScore(path, spec) {
+  const values = (path || []).map(normalise).filter(Boolean);
+  const leaf = normalise(spec?.leafTitle);
+  let score = values.includes(leaf) ? 500 : 0;
+
+  const hints = (spec?.pathHints || []).map(normalise).filter(Boolean);
+  hints.forEach((hint, index) => {
+    if (values.includes(hint)) score += 40 + index * 8;
+  });
+
+  if (hints.length && values.length >= hints.length) {
+    const suffix = values.slice(-hints.length);
+    if (suffix.every((value, index) => value === hints[index])) score += 500;
+  }
+
+  return score;
+}
+
+function administrativeLayerUrl(baseUrl, layerId) {
+  const clean = String(baseUrl || "").replace(/\/$/, "");
+  if (!clean) return null;
+  if (/\/(?:FeatureServer|MapServer)\/\d+$/i.test(clean)) return clean;
+
+  const numericId = Number(layerId);
+  if (Number.isFinite(numericId) && /\/(?:FeatureServer|MapServer)$/i.test(clean)) {
+    return clean + "/" + numericId;
+  }
+  return clean;
+}
+
+function findConfiguredAdministrativeNodes(value, spec, path=[], inheritedUrl=null, output=[], seen=new Set()) {
+  if (!value || typeof value !== "object" || seen.has(value)) return output;
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    value.forEach((entry) => findConfiguredAdministrativeNodes(entry, spec, path, inheritedUrl, output, seen));
+    return output;
+  }
+
+  const label = String(value.title || value.name || "").trim();
+  const nextPath = label ? [...path, label] : path;
+  const nextUrl = typeof value.url === "string" && value.url ? value.url : inheritedUrl;
+
+  let layerId = value.layerId;
+  if (layerId == null && (typeof value.id === "number" || /^\d+$/.test(String(value.id || "")))) {
+    layerId = Number(value.id);
+  }
+
+  if (label && normalise(label) === normalise(spec.leafTitle)) {
+    const url = administrativeLayerUrl(nextUrl, layerId);
+    if (url) {
+      output.push({
+        url,
+        layerId: Number.isFinite(Number(layerId)) ? Number(layerId) : null,
+        layerTitle: label,
+        path: nextPath,
+        score: adminLayerPathScore(nextPath, spec)
+      });
+    }
+  }
+
+  Object.values(value).forEach((child) => {
+    if (child && typeof child === "object") {
+      findConfiguredAdministrativeNodes(child, spec, nextPath, nextUrl, output, seen);
+    }
+  });
+
+  return output;
+}
+
+function findServiceAdministrativeNodes(serviceMetadata, serviceUrl, itemTitle, spec) {
+  const output = [];
+  const layers = Array.isArray(serviceMetadata?.layers) ? serviceMetadata.layers : [];
+  if (!layers.length) return output;
+
+  const byId = new Map(layers.map((layer) => [Number(layer.id), layer]));
+  const pathFor = (layer) => {
+    const names = [];
+    const visited = new Set();
+    let current = layer;
+    while (current && !visited.has(Number(current.id))) {
+      visited.add(Number(current.id));
+      if (current.name) names.unshift(String(current.name));
+      const parentId = Number(current.parentLayerId);
+      current = Number.isFinite(parentId) && parentId >= 0 ? byId.get(parentId) : null;
+    }
+    if (itemTitle && normalise(names[0]) !== normalise(itemTitle)) names.unshift(itemTitle);
+    return names;
+  };
+
+  layers.forEach((layer) => {
+    if (normalise(layer.name) !== normalise(spec.leafTitle)) return;
+    const path = pathFor(layer);
+    output.push({
+      url: administrativeLayerUrl(serviceUrl, layer.id),
+      layerId: Number(layer.id),
+      layerTitle: String(layer.name || spec.leafTitle),
+      path,
+      score: adminLayerPathScore(path, spec)
+    });
+  });
+
+  return output;
+}
+
+async function verifyAdministrativeCandidate(candidate, portalItem, spec) {
+  if (!candidate?.url) return null;
+  const response = await esriRequest(candidate.url, {
+    responseType: "json",
+    authMode: "auto",
+    query: { f: "json" }
+  });
+  const metadata = response?.data || {};
+  const geometryType = String(metadata.geometryType || "");
+  if (!/polygon/i.test(geometryType)) return null;
+
+  const capabilities = String(metadata.capabilities || "");
+  if (capabilities && !/query/i.test(capabilities)) return null;
+
+  const path = Array.isArray(candidate.path) && candidate.path.length
+    ? candidate.path
+    : [candidate.layerTitle || metadata.name || spec.leafTitle];
+
+  return {
+    itemId: portalItem.id,
+    itemTitle: portalItem.title || portalItem.id,
+    itemType: portalItem.type || null,
+    modified: portalItem.modified || null,
+    layerId: Number.isFinite(Number(candidate.layerId)) ? Number(candidate.layerId) : Number(metadata.id),
+    layerTitle: String(metadata.name || candidate.layerTitle || spec.leafTitle),
+    path,
+    geometryType,
+    queryUrl: candidate.url,
+    score: Number(candidate.score || 0)
+  };
+}
+
+async function inspectAdministrativeItem(item, spec) {
+  const portalItem = item instanceof PortalItem
+    ? item
+    : new PortalItem({ id: item?.id || item?.itemId, portal });
+  await portalItem.load();
+
+  let data = null;
+  try {
+    data = await portalItem.fetchData();
+  } catch {}
+
+  const candidates = findConfiguredAdministrativeNodes(
+    data,
+    spec,
+    portalItem.title ? [portalItem.title] : []
+  );
+
+  if (portalItem.url) {
+    try {
+      const serviceResponse = await esriRequest(portalItem.url, {
+        responseType: "json",
+        authMode: "auto",
+        query: { f: "json" }
+      });
+      const metadata = serviceResponse?.data || {};
+      candidates.push(...findServiceAdministrativeNodes(metadata, portalItem.url, portalItem.title, spec));
+
+      const directTitle = String(metadata.name || portalItem.title || "");
+      if (/polygon/i.test(String(metadata.geometryType || "")) &&
+          normalise(directTitle) === normalise(spec.leafTitle)) {
+        candidates.push({
+          url: portalItem.url,
+          layerId: Number.isFinite(Number(metadata.id)) ? Number(metadata.id) : null,
+          layerTitle: directTitle,
+          path: [portalItem.title || directTitle],
+          score: 600
+        });
+      }
+    } catch {}
+  }
+
+  const unique = new Map();
+  candidates.forEach((candidate) => {
+    const key = String(candidate.url || "");
+    const previous = unique.get(key);
+    if (!previous || Number(candidate.score || 0) > Number(previous.score || 0)) {
+      unique.set(key, candidate);
+    }
+  });
+
+  const ordered = [...unique.values()].sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+  for (const candidate of ordered) {
+    try {
+      const verified = await verifyAdministrativeCandidate(candidate, portalItem, spec);
+      if (verified) return verified;
+    } catch {}
+  }
+
+  return null;
+}
+
+async function findAdministrativeItems(spec) {
+  const terms = [...new Set([
+    spec.leafTitle,
+    ...(Array.isArray(spec.pathHints) ? spec.pathHints : [])
+  ].map((value) => String(value || "").trim()).filter(Boolean))];
+
+  const byId = new Map();
+  for (const term of terms) {
+    try {
+      const escaped = term.replaceAll('"', '\\"');
+      const result = await portal.queryItems({
+        query: 'title:"' + escaped + '"',
+        num: 100,
+        sortField: "modified",
+        sortOrder: "desc"
+      });
+      (result.results || []).forEach((item) => {
+        if (!["web map", "feature service", "map service"].includes(normalise(item.type))) return;
+        if (!byId.has(item.id)) byId.set(item.id, item);
+      });
+    } catch {}
+  }
+
+  // If the hierarchy is embedded inside a user's Web Map, its group-layer
+  // titles may not be indexed as portal item titles. Include recent Web Maps
+  // owned by the signed-in user as a bounded fallback discovery set.
+  const username = String(portal.user?.username || "").trim();
+  if (username) {
+    try {
+      const result = await portal.queryItems({
+        query: 'owner:"' + username.replaceAll('"', '\\"') + '" AND type:"Web Map"',
+        num: 50,
+        sortField: "modified",
+        sortOrder: "desc"
+      });
+      (result.results || []).forEach((item) => {
+        if (!byId.has(item.id)) byId.set(item.id, item);
+      });
+    } catch {}
+  }
+
+  return [...byId.values()].sort((a, b) => {
+    const aTitle = normalise(a.title);
+    const bTitle = normalise(b.title);
+    const leaf = normalise(spec.leafTitle);
+    const root = normalise(spec.pathHints?.[0]);
+    const aScore = (aTitle === leaf ? 200 : 0) + (aTitle === root ? 120 : 0) + Number(a.modified || 0) / 1e13;
+    const bScore = (bTitle === leaf ? 200 : 0) + (bTitle === root ? 120 : 0) + Number(b.modified || 0) / 1e13;
+    return bScore - aScore;
+  });
+}
+
+function publicAdministrativeLayer(layer) {
+  if (!layer) return null;
+  return {
+    key: layer.key,
+    available: true,
+    title: layer.layerTitle,
+    itemTitle: layer.itemTitle,
+    path: Array.isArray(layer.path) ? [...layer.path] : [],
+    geometryType: layer.geometryType || "esriGeometryPolygon"
+  };
+}
+
+async function resolveAdministrativeLayer(key, clearCached=false) {
+  const spec = cfg.administrativeLayers?.[key];
+  if (!spec) throw new Error("No administrative layer is configured for " + key + ".");
+
+  if (clearCached) {
+    removeLocal(adminStorageKey(key));
+    runtimeAdminLayers.delete(key);
+  }
+
+  if (runtimeAdminLayers.has(key)) return runtimeAdminLayers.get(key);
+
+  const saved = loadSavedAdminLayer(key);
+  if (saved?.itemId) {
+    try {
+      const inspected = await inspectAdministrativeItem(
+        new PortalItem({ id: saved.itemId, portal }),
+        spec
+      );
+      if (inspected) {
+        const resolved = { ...inspected, key };
+        runtimeAdminLayers.set(key, resolved);
+        saveAdminLayer(key, resolved);
+        return resolved;
+      }
+    } catch {}
+    removeLocal(adminStorageKey(key));
+  }
+
+  const items = await findAdministrativeItems(spec);
+  let best = null;
+  for (const item of items.slice(0, 45)) {
+    try {
+      const inspected = await inspectAdministrativeItem(item, spec);
+      if (!inspected) continue;
+      const resolved = { ...inspected, key };
+      if (!best || resolved.score > best.score) best = resolved;
+      if (resolved.score >= 900) break;
+    } catch {}
+  }
+
+  if (!best) {
+    throw new Error('The authenticated polygon layer "' + spec.leafTitle + '" could not be resolved from accessible ArcGIS content.');
+  }
+
+  runtimeAdminLayers.set(key, best);
+  saveAdminLayer(key, best);
+  return best;
+}
+
+async function resolveAllAdministrativeLayers(clearCached=false) {
+  const results = {};
+  for (const key of Object.keys(cfg.administrativeLayers || {})) {
+    try {
+      const layer = await resolveAdministrativeLayer(key, clearCached);
+      results[key] = { ok: true, layer: publicAdministrativeLayer(layer) };
+    } catch (error) {
+      results[key] = { ok: false, error: safeMessage(error, "Administrative boundary layer could not be resolved.") };
+    }
+  }
+
+  window.dispatchEvent(new CustomEvent("mapping:arcgis-admin-boundaries", {
+    detail: results
+  }));
+  return results;
+}
+
+async function queryAdministrativeLayer(key, extent, outFields="*") {
+  const resolved = runtimeAdminLayers.get(key) || await resolveAdministrativeLayer(key, false);
+  const bounds = Array.isArray(extent)
+    ? extent
+    : [extent.xmin, extent.ymin, extent.xmax, extent.ymax];
+
+  const response = await esriRequest(String(resolved.queryUrl).replace(/\/$/, "") + "/query", {
+    responseType: "json",
+    authMode: "auto",
+    query: {
+      where: "1=1",
+      outFields,
+      returnGeometry: true,
+      outSR: 4326,
+      f: "geojson",
+      geometry: bounds.join(","),
+      geometryType: "esriGeometryEnvelope",
+      inSR: 4326,
+      spatialRel: "esriSpatialRelIntersects",
+      resultRecordCount: 2000
+    }
+  });
+
+  const payload = response?.data || {};
+  if (payload.error) throw new Error(payload.error.message || "Administrative boundary query failed.");
+  if (payload.type !== "FeatureCollection" || !Array.isArray(payload.features)) {
+    throw new Error("Administrative boundary query did not return GeoJSON polygons.");
+  }
+
+  return {
+    ...payload,
+    source: publicAdministrativeLayer(resolved)
   };
 }
 
@@ -889,12 +1280,23 @@ async function showApp() {
     },
     renderBasemapImage(extent, width, height, options={}) {
       return renderTopographicBasemap(extent, width, height, options);
+    },
+    resolveAdministrativeLayers: resolveAllAdministrativeLayers,
+    getAdministrativeLayer(key) {
+      return publicAdministrativeLayer(runtimeAdminLayers.get(key));
+    },
+    queryAdministrativeLayer(key, extent, outFields="*") {
+      return queryAdministrativeLayer(key, extent, outFields);
     }
   };
 
   window.dispatchEvent(new CustomEvent("mapping:arcgis-ready", {
     detail: { portal, portalUrl }
   }));
+
+  // Administrative layers are optional context. Resolve them after the core
+  // WMS workflow is ready; individual queries also resolve lazily if needed.
+  void resolveAllAdministrativeLayers(false);
 }
 
 async function startLogin(value) {
@@ -946,12 +1348,14 @@ async function init() {
     esriId.destroyCredentials();
     portal = null;
     runtimeSources.clear();
+    runtimeAdminLayers.clear();
     window.MAPPING_ARCGIS = null;
     showLogin("Signed out of this application. Your organisation SSO session may remain active in the browser.");
   });
 
   ui.reconnect?.addEventListener("click", () => {
     void resolveAllStandardSources(true);
+    void resolveAllAdministrativeLayers(true);
   });
 
   const savedPrefix = orgPrefix(getLocal(ORG_KEY));

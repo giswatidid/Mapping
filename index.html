@@ -7,8 +7,8 @@
   <meta name="theme-color" content="#12161d" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
   <title>Queensland Warning Mapping</title>
-  <link rel="stylesheet" href="styles.css?v=20260920-browser19">
-  <link rel="stylesheet" href="auth.css?v=20260920-browser19">
+  <link rel="stylesheet" href="styles.css?v=20260920-browser20">
+  <link rel="stylesheet" href="auth.css?v=20260920-browser20">
 </head>
 <body>
   <main id="loginGate" class="auth-page" hidden>
@@ -121,6 +121,34 @@
         <span id="statusBadge" class="scope-badge warning">Checking</span>
       </section>
 
+      <section id="affectedAreasPanel" class="panel affected-areas-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>Affected administrative areas</h2>
+            <p>Uses the actual warning raster pixels rather than the rectangular map extent. Administrative polygon layers are resolved from the signed-in ArcGIS session where available.</p>
+          </div>
+          <div class="panel-scope"><span id="affectedAreasStatus" class="mini-chip">Generate to analyse</span></div>
+        </div>
+        <div class="panel-body affected-area-grid">
+          <article class="affected-area-card">
+            <div class="affected-area-heading">
+              <span>Local government areas</span>
+              <strong id="affectedLgaCount">—</strong>
+            </div>
+            <p id="affectedLgaList">Generate a Severe Thunderstorm or Severe Weather map to analyse affected LGAs.</p>
+            <small id="affectedLgaSource">Authenticated Local government layer preferred; public Queensland LGA boundaries are the fallback.</small>
+          </article>
+          <article class="affected-area-card">
+            <div class="affected-area-heading">
+              <span>Disaster districts</span>
+              <strong id="affectedDistrictCount">—</strong>
+            </div>
+            <p id="affectedDistrictList">Generate a Severe Thunderstorm or Severe Weather map to analyse affected disaster districts.</p>
+            <small id="affectedDistrictSource">Uses the authenticated Queensland Disaster District Management Groups layer when it can be resolved.</small>
+          </article>
+        </div>
+      </section>
+
       <section id="floodSelectionPanel" class="panel flood-selection-panel" hidden>
         <div class="panel-header">
           <div class="panel-title">
@@ -172,10 +200,10 @@
     </footer>
   </div>
 
-  <script src="config.js?v=20260920-browser19"></script>
+  <script src="config.js?v=20260920-browser20"></script>
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
-  <script type="module" src="arcgis-auth.js?v=20260920-browser19"></script>
-  <script src="app.js?v=20260920-browser19"></script>
-  <script src="renderer.js?v=20260920-browser19"></script>
+  <script type="module" src="arcgis-auth.js?v=20260920-browser20"></script>
+  <script src="app.js?v=20260920-browser20"></script>
+  <script src="renderer.js?v=20260920-browser20"></script>
 </body>
 </html>

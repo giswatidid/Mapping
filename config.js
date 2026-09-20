@@ -55,6 +55,26 @@ window.MAPPING_CONFIG = {
         activeScopeLabel: "selected flood warning/watch"
       }
     },
+    administrativeLayers: {
+      localGovernment: {
+        leafTitle: "Local government",
+        pathHints: [
+          "Portfolio Admin",
+          "Boundaries",
+          "Administrative Boundaries",
+          "Local government"
+        ]
+      },
+      disasterDistricts: {
+        leafTitle: "Queensland Disaster District Management Groups",
+        pathHints: [
+          "Portfolio Admin",
+          "Boundaries",
+          "Administrative Boundaries",
+          "Queensland Disaster District Management Groups"
+        ]
+      }
+    },
     standardSources: {
       warning: {
         itemTitle: "BoM Severe Weather Warning WMS APIM PRD",
