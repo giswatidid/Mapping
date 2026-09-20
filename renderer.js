@@ -249,7 +249,7 @@
     if (affectedDistrictList) {
       affectedDistrictList.textContent = result.districtAvailable
         ? (districts.length ? districts.join(" · ") : "No disaster-district intersections detected.")
-        : "Authenticated disaster-district layer could not be resolved for this session.";
+        : "Disaster districts are not available for this run. Layer discovery may still be completing in the background.";
     }
     if (affectedLgaSource) {
       affectedLgaSource.textContent = result.lgaSource === "authenticated"
@@ -259,8 +259,18 @@
     if (affectedDistrictSource) {
       affectedDistrictSource.textContent = result.districtAvailable
         ? "Source: authenticated Queensland Disaster District Management Groups polygon layer."
-        : "Disaster district source unavailable; no district names have been inferred.";
+        : "Disaster district source unavailable for this run; no district names have been inferred.";
     }
+  }
+
+  function promiseTimeout(promise, ms, message) {
+    let timer;
+    return Promise.race([
+      Promise.resolve(promise).finally(() => clearTimeout(timer)),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      })
+    ]);
   }
 
   function cleanMessage(error, fallback="Map generation failed.") {
@@ -719,9 +729,15 @@
 
   async function loadPreferredLga(extent) {
     const arcgis = window.MAPPING_ARCGIS;
-    if (arcgis?.queryAdministrativeLayer) {
+    const resolved = arcgis?.getAdministrativeLayer?.("localGovernment");
+
+    if (resolved?.available && arcgis?.queryResolvedAdministrativeLayer) {
       try {
-        const privateLga = await arcgis.queryAdministrativeLayer("localGovernment", extent, "*");
+        const privateLga = await promiseTimeout(
+          arcgis.queryResolvedAdministrativeLayer("localGovernment", extent, "*"),
+          5000,
+          "Authenticated Local government query timed out."
+        );
         if (Array.isArray(privateLga?.features) && privateLga.features.length) {
           return { ...privateLga, _source: "authenticated" };
         }
@@ -734,19 +750,30 @@
 
   async function loadDisasterDistricts(extent) {
     const arcgis = window.MAPPING_ARCGIS;
-    if (!arcgis?.queryAdministrativeLayer) {
-      return { type: "FeatureCollection", features: [], _source: "unavailable" };
+    const resolved = arcgis?.getAdministrativeLayer?.("disasterDistricts");
+
+    if (!resolved?.available || !arcgis?.queryResolvedAdministrativeLayer) {
+      return {
+        type: "FeatureCollection",
+        features: [],
+        _source: "unavailable",
+        _error: "Administrative layer discovery is still running or the district layer was not found."
+      };
     }
 
     try {
-      const districts = await arcgis.queryAdministrativeLayer("disasterDistricts", extent, "*");
+      const districts = await promiseTimeout(
+        arcgis.queryResolvedAdministrativeLayer("disasterDistricts", extent, "*"),
+        5000,
+        "Authenticated disaster-district query timed out."
+      );
       return { ...districts, _source: "authenticated" };
     } catch (error) {
       return {
         type: "FeatureCollection",
         features: [],
         _source: "unavailable",
-        _error: cleanMessage(error, "Authenticated disaster-district layer could not be resolved.")
+        _error: cleanMessage(error, "Authenticated disaster-district layer is unavailable for this run.")
       };
     }
   }

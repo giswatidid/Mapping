@@ -482,14 +482,22 @@ async function resolveAdministrativeLayer(key, clearCached=false) {
 
   const items = await findAdministrativeItems(spec);
   let best = null;
-  for (const item of items.slice(0, 45)) {
-    try {
-      const inspected = await inspectAdministrativeItem(item, spec);
-      if (!inspected) continue;
-      const resolved = { ...inspected, key };
+  const candidates = items.slice(0, 24);
+  const batchSize = 6;
+
+  for (let start = 0; start < candidates.length; start += batchSize) {
+    const batch = candidates.slice(start, start + batchSize);
+    const inspectedBatch = await Promise.allSettled(
+      batch.map((item) => inspectAdministrativeItem(item, spec))
+    );
+
+    inspectedBatch.forEach((entry) => {
+      if (entry.status !== "fulfilled" || !entry.value) return;
+      const resolved = { ...entry.value, key };
       if (!best || resolved.score > best.score) best = resolved;
-      if (resolved.score >= 900) break;
-    } catch {}
+    });
+
+    if (best?.score >= 900) break;
   }
 
   if (!best) {
@@ -518,8 +526,11 @@ async function resolveAllAdministrativeLayers(clearCached=false) {
   return results;
 }
 
-async function queryAdministrativeLayer(key, extent, outFields="*") {
-  const resolved = runtimeAdminLayers.get(key) || await resolveAdministrativeLayer(key, false);
+async function queryAdministrativeLayerFromResolved(key, extent, outFields="*") {
+  const resolved = runtimeAdminLayers.get(key);
+  if (!resolved) {
+    throw new Error("Administrative boundary layer has not finished resolving for this session.");
+  }
   const bounds = Array.isArray(extent)
     ? extent
     : [extent.xmin, extent.ymin, extent.xmax, extent.ymax];
@@ -1286,7 +1297,11 @@ async function showApp() {
       return publicAdministrativeLayer(runtimeAdminLayers.get(key));
     },
     queryAdministrativeLayer(key, extent, outFields="*") {
-      return queryAdministrativeLayer(key, extent, outFields);
+      return resolveAdministrativeLayer(key, false)
+        .then(() => queryAdministrativeLayerFromResolved(key, extent, outFields));
+    },
+    queryResolvedAdministrativeLayer(key, extent, outFields="*") {
+      return queryAdministrativeLayerFromResolved(key, extent, outFields);
     }
   };
 
