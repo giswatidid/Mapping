@@ -30,9 +30,11 @@
   const affectedLgaCount = document.querySelector("#affectedLgaCount");
   const affectedLgaList = document.querySelector("#affectedLgaList");
   const affectedLgaSource = document.querySelector("#affectedLgaSource");
+  const affectedLgaSourceState = document.querySelector("#affectedLgaSourceState");
   const affectedDistrictCount = document.querySelector("#affectedDistrictCount");
   const affectedDistrictList = document.querySelector("#affectedDistrictList");
   const affectedDistrictSource = document.querySelector("#affectedDistrictSource");
+  const affectedDistrictSourceState = document.querySelector("#affectedDistrictSourceState");
   const TRACKING_PREF_KEY = "mapping.includeThunderstormCellTracking";
   const PROFILE_PREF_KEY = "mapping.warningProfile";
   const PROFILES = cfg.arcgis?.warningProfiles || {};
@@ -44,6 +46,10 @@
   let floodScanned = false;
   let floodCandidates = [];
   let selectedFloodCandidateId = null;
+  const adminBoundaryState = {
+    localGovernment: { status: "resolving", layer: null, error: "" },
+    disasterDistricts: { status: "resolving", layer: null, error: "" }
+  };
 
   function storedProfileKey() {
     try {
@@ -206,18 +212,79 @@
     }
   }
 
+  function setBoundarySourceBadge(element, status, label) {
+    if (!element) return;
+    element.textContent = label;
+    element.className = "boundary-source-status " + (
+      status === "ok" ? "ok" : (status === "warning" ? "warning" : "error")
+    );
+  }
+
+  function boundaryPathLabel(layer) {
+    const path = Array.isArray(layer?.path) ? layer.path.filter(Boolean) : [];
+    if (path.length) return path.join(" › ");
+    return layer?.title || layer?.itemTitle || "";
+  }
+
+  function renderBoundarySourceState() {
+    const lga = adminBoundaryState.localGovernment;
+    const district = adminBoundaryState.disasterDistricts;
+
+    if (lga.status === "authenticated") {
+      setBoundarySourceBadge(affectedLgaSourceState, "ok", "Authenticated");
+      if (affectedLgaSource) {
+        const path = boundaryPathLabel(lga.layer);
+        affectedLgaSource.textContent = "Authenticated ArcGIS layer connected" + (path ? ": " + path + "." : ".");
+      }
+    } else if (lga.status === "unavailable") {
+      setBoundarySourceBadge(affectedLgaSourceState, "warning", "Public fallback");
+      if (affectedLgaSource) {
+        affectedLgaSource.textContent = "Private Local government layer was not resolved; using the public Queensland Government LGA boundary source.";
+      }
+    } else {
+      setBoundarySourceBadge(affectedLgaSourceState, "warning", "Resolving");
+      if (affectedLgaSource) {
+        affectedLgaSource.textContent = "Searching the signed-in ArcGIS content for the Local government polygon layer; public LGA boundaries remain available as fallback.";
+      }
+    }
+
+    if (district.status === "authenticated") {
+      setBoundarySourceBadge(affectedDistrictSourceState, "ok", "Authenticated");
+      if (affectedDistrictSource) {
+        const path = boundaryPathLabel(district.layer);
+        affectedDistrictSource.textContent = "Authenticated ArcGIS layer connected" + (path ? ": " + path + "." : ".");
+      }
+    } else if (district.status === "unavailable") {
+      setBoundarySourceBadge(affectedDistrictSourceState, "error", "Unavailable");
+      if (affectedDistrictSource) {
+        affectedDistrictSource.textContent = "Queensland Disaster District Management Groups could not be resolved from accessible ArcGIS content.";
+      }
+    } else {
+      setBoundarySourceBadge(affectedDistrictSourceState, "warning", "Resolving");
+      if (affectedDistrictSource) {
+        affectedDistrictSource.textContent = "Searching the signed-in ArcGIS content for Queensland Disaster District Management Groups.";
+      }
+    }
+  }
+
+  function updateBoundaryDiscoveryState(detail={}) {
+    for (const key of ["localGovernment", "disasterDistricts"]) {
+      const result = detail?.[key];
+      if (!result) continue;
+      adminBoundaryState[key] = result.ok
+        ? { status: "authenticated", layer: result.layer || null, error: "" }
+        : { status: "unavailable", layer: null, error: String(result.error || "") };
+    }
+    renderBoundarySourceState();
+  }
+
   function resetAffectedAreas(message="Generate a Severe Thunderstorm or Severe Weather map to analyse affected areas.") {
     if (affectedAreasStatus) affectedAreasStatus.textContent = "Generate to analyse";
     if (affectedLgaCount) affectedLgaCount.textContent = "—";
     if (affectedDistrictCount) affectedDistrictCount.textContent = "—";
     if (affectedLgaList) affectedLgaList.textContent = message;
     if (affectedDistrictList) affectedDistrictList.textContent = message;
-    if (affectedLgaSource) {
-      affectedLgaSource.textContent = "Authenticated Local government layer preferred; public Queensland LGA boundaries are the fallback.";
-    }
-    if (affectedDistrictSource) {
-      affectedDistrictSource.textContent = "Uses the authenticated Queensland Disaster District Management Groups layer when it can be resolved.";
-    }
+    renderBoundarySourceState();
   }
 
   function renderAffectedAreas(result) {
@@ -251,16 +318,15 @@
         ? (districts.length ? districts.join(" · ") : "No disaster-district intersections detected.")
         : "Disaster districts are not available for this run. Layer discovery may still be completing in the background.";
     }
-    if (affectedLgaSource) {
-      affectedLgaSource.textContent = result.lgaSource === "authenticated"
-        ? "Source: authenticated Local government polygon layer."
-        : "Source: public Queensland Government LGA boundary fallback.";
+    // Source availability is displayed independently from the warning result.
+    // A run may use the public LGA fallback while private discovery continues.
+    if (result.lgaSource === "authenticated") {
+      adminBoundaryState.localGovernment.status = "authenticated";
     }
-    if (affectedDistrictSource) {
-      affectedDistrictSource.textContent = result.districtAvailable
-        ? "Source: authenticated Queensland Disaster District Management Groups polygon layer."
-        : "Disaster district source unavailable for this run; no district names have been inferred.";
+    if (result.districtAvailable) {
+      adminBoundaryState.disasterDistricts.status = "authenticated";
     }
+    renderBoundarySourceState();
   }
 
   function promiseTimeout(promise, ms, message) {
@@ -2070,6 +2136,16 @@
     scanFloodProducts().catch(() => {});
   });
 
+  window.addEventListener("mapping:arcgis-ready", () => {
+    adminBoundaryState.localGovernment = { status: "resolving", layer: null, error: "" };
+    adminBoundaryState.disasterDistricts = { status: "resolving", layer: null, error: "" };
+    renderBoundarySourceState();
+  });
+
+  window.addEventListener("mapping:arcgis-admin-boundaries", (event) => {
+    updateBoundaryDiscoveryState(event.detail || {});
+  });
+
   window.addEventListener("mapping:arcgis-sources", (event) => {
     feedsReady = Boolean(event.detail?.ready);
     updateProfileControls();
@@ -2081,6 +2157,7 @@
   generateButton?.addEventListener("click", generateMaps);
 
   updateProfileControls();
+  renderBoundarySourceState();
   if (modeEl) modeEl.textContent = currentProfile().label;
   updateWarningSourceDetail();
 })();

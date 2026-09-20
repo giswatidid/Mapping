@@ -510,15 +510,23 @@ async function resolveAdministrativeLayer(key, clearCached=false) {
 }
 
 async function resolveAllAdministrativeLayers(clearCached=false) {
+  const keys = Object.keys(cfg.administrativeLayers || {});
+  const settled = await Promise.allSettled(
+    keys.map((key) => resolveAdministrativeLayer(key, clearCached))
+  );
+
   const results = {};
-  for (const key of Object.keys(cfg.administrativeLayers || {})) {
-    try {
-      const layer = await resolveAdministrativeLayer(key, clearCached);
-      results[key] = { ok: true, layer: publicAdministrativeLayer(layer) };
-    } catch (error) {
-      results[key] = { ok: false, error: safeMessage(error, "Administrative boundary layer could not be resolved.") };
+  settled.forEach((entry, index) => {
+    const key = keys[index];
+    if (entry.status === "fulfilled") {
+      results[key] = { ok: true, layer: publicAdministrativeLayer(entry.value) };
+    } else {
+      results[key] = {
+        ok: false,
+        error: safeMessage(entry.reason, "Administrative boundary layer could not be resolved.")
+      };
     }
-  }
+  });
 
   window.dispatchEvent(new CustomEvent("mapping:arcgis-admin-boundaries", {
     detail: results

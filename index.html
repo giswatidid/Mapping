@@ -7,8 +7,8 @@
   <meta name="theme-color" content="#12161d" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
   <title>Queensland Warning Mapping</title>
-  <link rel="stylesheet" href="styles.css?v=20260920-browser21">
-  <link rel="stylesheet" href="auth.css?v=20260920-browser21">
+  <link rel="stylesheet" href="styles.css?v=20260920-browser22">
+  <link rel="stylesheet" href="auth.css?v=20260920-browser22">
 </head>
 <body>
   <main id="loginGate" class="auth-page" hidden>
@@ -133,7 +133,10 @@
           <article class="affected-area-card">
             <div class="affected-area-heading">
               <span>Local government areas</span>
-              <strong id="affectedLgaCount">—</strong>
+              <div class="affected-area-badges">
+                <strong id="affectedLgaCount">—</strong>
+                <span id="affectedLgaSourceState" class="boundary-source-status warning">Resolving</span>
+              </div>
             </div>
             <p id="affectedLgaList">Generate a Severe Thunderstorm or Severe Weather map to analyse affected LGAs.</p>
             <small id="affectedLgaSource">Authenticated Local government layer preferred; public Queensland LGA boundaries are the fallback.</small>
@@ -141,7 +144,10 @@
           <article class="affected-area-card">
             <div class="affected-area-heading">
               <span>Disaster districts</span>
-              <strong id="affectedDistrictCount">—</strong>
+              <div class="affected-area-badges">
+                <strong id="affectedDistrictCount">—</strong>
+                <span id="affectedDistrictSourceState" class="boundary-source-status warning">Resolving</span>
+              </div>
             </div>
             <p id="affectedDistrictList">Generate a Severe Thunderstorm or Severe Weather map to analyse affected disaster districts.</p>
             <small id="affectedDistrictSource">Uses the authenticated Queensland Disaster District Management Groups layer when it can be resolved.</small>
@@ -200,10 +206,10 @@
     </footer>
   </div>
 
-  <script src="config.js?v=20260920-browser21"></script>
+  <script src="config.js?v=20260920-browser22"></script>
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
-  <script type="module" src="arcgis-auth.js?v=20260920-browser21"></script>
-  <script src="app.js?v=20260920-browser21"></script>
-  <script src="renderer.js?v=20260920-browser21"></script>
+  <script type="module" src="arcgis-auth.js?v=20260920-browser22"></script>
+  <script src="app.js?v=20260920-browser22"></script>
+  <script src="renderer.js?v=20260920-browser22"></script>
 </body>
 </html>
