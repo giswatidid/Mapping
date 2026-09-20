@@ -57,22 +57,19 @@ window.MAPPING_CONFIG = {
     },
     administrativeLayers: {
       localGovernment: {
-        leafTitle: "Local government",
-        pathHints: [
-          "Portfolio Admin",
-          "Boundaries",
-          "Administrative Boundaries",
-          "Local government"
-        ]
+        sourceType: "public",
+        layerTitle: "Local government",
+        layerId: 1,
+        nameField: "lga",
+        publicUrl: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdministrativeBoundaries/MapServer/1"
       },
       disasterDistricts: {
-        leafTitle: "Queensland Disaster District Management Groups",
-        pathHints: [
-          "Portfolio Admin",
-          "Boundaries",
-          "Administrative Boundaries",
-          "Queensland Disaster District Management Groups"
-        ]
+        sourceType: "portal-item",
+        itemTitle: "Queensland_Disaster_District_Management_Groups",
+        itemType: "Feature Service",
+        layerId: 0,
+        layerTitle: "DDMG_websites",
+        nameField: "PROP_DD"
       }
     },
     standardSources: {
@@ -109,7 +106,7 @@ window.MAPPING_CONFIG = {
   publicSources: {
     powerOutages: "https://raw.githubusercontent.com/gowlettluke/qldpoweroutages/main/data/current_outages.geojson",
     roadConditions: "https://data.qldtraffic.qld.gov.au/events_v2.geojson",
-    lga: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdminBoundariesFramework/FeatureServer/11",
+    lga: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdministrativeBoundaries/MapServer/1",
     coastline: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/55",
     stateBorder: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/5",
     mainland: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Location/GeographicalFeatures/FeatureServer/90",

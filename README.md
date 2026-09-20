@@ -84,23 +84,23 @@ Required sublayer:
 
 The item IDs and service URLs are discovered after authentication and are never hard-coded in the repository.
 
-## Authenticated administrative boundaries and affected areas
+## Administrative boundaries and affected areas
 
 For **Severe Thunderstorm** and **Severe Weather**, the browser analyses the actual visible warning raster pixels against administrative polygon layers after generation. It reports:
 
 - Local government areas intersected by the warning pixels
 - Queensland disaster districts intersected by the warning pixels
 
-The ArcGIS session attempts to resolve these layers by their displayed hierarchy rather than by hard-coded item IDs or service URLs:
+The boundary sources are deterministic:
 
-- `Portfolio Admin > Boundaries > Administrative Boundaries > Local government`
-- `Portfolio Admin > Boundaries > Administrative Boundaries > Queensland Disaster District Management Groups`
+- **Local government** uses the Queensland Government `Boundaries/AdministrativeBoundaries/MapServer/1` polygon layer directly. Its display/name field is `lga`.
+- **Disaster districts** are resolved after ArcGIS sign-in by the exact accessible item title `Queensland_Disaster_District_Management_Groups`. The app then verifies feature-service layer `0`, named `DDMG_websites`, with display/name field `PROP_DD`.
 
-The resolver searches accessible Web Map, Feature Service and Map Service content, recursively inspects nested layer definitions, and verifies that the selected leaf layer is a queryable polygon layer. Resolved private service URLs remain in browser memory only; the browser may cache the item/layer identifiers and matched path for that signed-in organisation.
+No private disaster-district item ID or service URL is hard-coded in the repository. The authenticated service URL is obtained from the matched ArcGIS item at runtime and remains in browser memory. The resolved item ID/layer identity may be cached locally for that signed-in organisation.
 
-The authenticated **Local government** layer is preferred for both warning/LGA analysis and map context. Administrative-layer discovery runs independently after login and never blocks map generation. The affected-areas panel shows source state independently of warning activity: **Authenticated**, **Public fallback**, **Resolving**, or **Unavailable**. Generate uses a private boundary layer only when it has already resolved; otherwise the existing public Queensland Government LGA FeatureServer is used immediately. Private boundary queries also have a short timeout. Disaster districts are not inferred from another dataset: if the authenticated district layer has not resolved or cannot be queried for that run, the UI reports them as unavailable.
+The affected-areas panel shows source state independently of warning activity. The Local government source should report **Public source** once its exact Queensland Government layer is verified. Disaster districts report **Authenticated** only after the exact ArcGIS item/layer checks pass; otherwise they report **Unavailable** rather than being inferred.
 
-Raster intersection is based on the same warning mask used for warning extent detection, not the rectangular map extent. Severe Thunderstorm analysis uses only `IDZ20006`; optional storm-cell/direction overlays do not affect the LGA or disaster-district result.
+Administrative-source resolution does not block map generation. Raster intersection is based on the same warning mask used for warning extent detection, not the rectangular map extent. Severe Thunderstorm analysis uses only `IDZ20006`; optional storm-cell/direction overlays do not affect the LGA or disaster-district result.
 
 ## Public infrastructure and reference sources
 
@@ -135,7 +135,7 @@ They do not replace the authenticated active Flood Warning/Flood Watch WMS layer
 
 ### Queensland Government reference data
 
-- LGA boundaries fallback: `Boundaries/AdminBoundariesFramework/FeatureServer/11`
+- LGA boundaries: `Boundaries/AdministrativeBoundaries/MapServer/1`
 - coastline: `Basemaps/FoundationData/FeatureServer/55`
 - state border: `Basemaps/FoundationData/FeatureServer/5`
 - mainland/land polygon: `Location/GeographicalFeatures/FeatureServer/90`

@@ -94,6 +94,8 @@ function saveAdminLayer(key, layer) {
     modified: layer.modified || null,
     layerId: Number.isFinite(Number(layer.layerId)) ? Number(layer.layerId) : null,
     layerTitle: layer.layerTitle || null,
+    sourceType: layer.sourceType || null,
+    nameField: layer.nameField || null,
     path: Array.isArray(layer.path) ? layer.path.slice(0, 12) : [],
     verifiedAt: new Date().toISOString()
   };
@@ -445,10 +447,174 @@ function publicAdministrativeLayer(layer) {
   return {
     key: layer.key,
     available: true,
+    sourceType: layer.sourceType || "authenticated",
     title: layer.layerTitle,
     itemTitle: layer.itemTitle,
     path: Array.isArray(layer.path) ? [...layer.path] : [],
-    geometryType: layer.geometryType || "esriGeometryPolygon"
+    geometryType: layer.geometryType || "esriGeometryPolygon",
+    nameField: layer.nameField || null
+  };
+}
+
+async function findExactAdministrativePortalItem(spec) {
+  const wantedTitle = normalise(spec.itemTitle);
+  const wantedType = normalise(spec.itemType || "Feature Service");
+  const byId = new Map();
+
+  try {
+    const result = await portal.queryItems({
+      query: 'title:"' + String(spec.itemTitle).replaceAll('"', '\\"') + '"',
+      num: 100,
+      sortField: "modified",
+      sortOrder: "desc"
+    });
+    (result.results || []).forEach((item) => {
+      if (normalise(item.title) !== wantedTitle) return;
+      if (wantedType && normalise(item.type) !== wantedType) return;
+      byId.set(item.id, item);
+    });
+  } catch {}
+
+  if (!byId.size) {
+    try {
+      const groups = await portal.user?.fetchGroups();
+      const settled = await Promise.allSettled((groups || []).map(async (group) => {
+        const result = await group.queryItems({
+          query: 'title:"' + String(spec.itemTitle).replaceAll('"', '\\"') + '"',
+          num: 50,
+          sortField: "modified",
+          sortOrder: "desc"
+        });
+        return result.results || [];
+      }));
+      settled.forEach((entry) => {
+        if (entry.status !== "fulfilled") return;
+        entry.value.forEach((item) => {
+          if (normalise(item.title) !== wantedTitle) return;
+          if (wantedType && normalise(item.type) !== wantedType) return;
+          byId.set(item.id, item);
+        });
+      });
+    } catch {}
+  }
+
+  return [...byId.values()].sort((a, b) => Number(b.modified || 0) - Number(a.modified || 0))[0] || null;
+}
+
+async function resolveExactPortalAdministrativeLayer(key, spec, saved=null) {
+  let portalItem = null;
+
+  if (saved?.itemId) {
+    try {
+      const candidate = new PortalItem({ id: saved.itemId, portal });
+      await candidate.load();
+      if (
+        normalise(candidate.title) === normalise(spec.itemTitle) &&
+        normalise(candidate.type) === normalise(spec.itemType || "Feature Service")
+      ) {
+        portalItem = candidate;
+      }
+    } catch {}
+  }
+
+  if (!portalItem) {
+    const item = await findExactAdministrativePortalItem(spec);
+    if (!item?.id) {
+      throw new Error('The ArcGIS item "' + spec.itemTitle + '" is not accessible to this account.');
+    }
+    portalItem = new PortalItem({ id: item.id, portal });
+    await portalItem.load();
+  }
+
+  if (!portalItem.url) {
+    throw new Error('The ArcGIS item "' + spec.itemTitle + '" does not expose a feature-service URL.');
+  }
+
+  const layerUrl = administrativeLayerUrl(portalItem.url, spec.layerId);
+  const response = await esriRequest(layerUrl, {
+    responseType: "json",
+    authMode: "auto",
+    query: { f: "json" }
+  });
+  const metadata = response?.data || {};
+  if (metadata.error) throw new Error(metadata.error.message || "Administrative layer metadata request failed.");
+
+  if (!/polygon/i.test(String(metadata.geometryType || ""))) {
+    throw new Error('Expected polygon geometry for "' + spec.layerTitle + '".');
+  }
+  if (normalise(metadata.name) !== normalise(spec.layerTitle)) {
+    throw new Error(
+      'Administrative layer name changed: expected "' + spec.layerTitle +
+      '" but ArcGIS reports "' + String(metadata.name || "") + '".'
+    );
+  }
+  if (spec.nameField && normalise(metadata.displayField) !== normalise(spec.nameField)) {
+    throw new Error(
+      'Administrative display field changed: expected "' + spec.nameField +
+      '" but ArcGIS reports "' + String(metadata.displayField || "") + '".'
+    );
+  }
+  const capabilities = String(metadata.capabilities || "");
+  if (capabilities && !/query/i.test(capabilities)) {
+    throw new Error('Administrative layer "' + spec.layerTitle + '" is not queryable.');
+  }
+
+  return {
+    key,
+    sourceType: "authenticated",
+    itemId: portalItem.id,
+    itemTitle: portalItem.title || spec.itemTitle,
+    itemType: portalItem.type || spec.itemType,
+    modified: portalItem.modified || null,
+    layerId: Number(spec.layerId),
+    layerTitle: String(metadata.name || spec.layerTitle),
+    nameField: spec.nameField || metadata.displayField || null,
+    path: [portalItem.title || spec.itemTitle, String(metadata.name || spec.layerTitle)],
+    geometryType: String(metadata.geometryType || "esriGeometryPolygon"),
+    queryUrl: layerUrl,
+    score: 1000
+  };
+}
+
+async function resolvePublicAdministrativeLayer(key, spec) {
+  const response = await esriRequest(spec.publicUrl, {
+    responseType: "json",
+    authMode: "anonymous",
+    query: { f: "json" }
+  });
+  const metadata = response?.data || {};
+  if (metadata.error) throw new Error(metadata.error.message || "Public administrative layer metadata request failed.");
+
+  if (!/polygon/i.test(String(metadata.geometryType || ""))) {
+    throw new Error('Expected polygon geometry for public layer "' + spec.layerTitle + '".');
+  }
+  if (normalise(metadata.name) !== normalise(spec.layerTitle)) {
+    throw new Error(
+      'Public administrative layer name changed: expected "' + spec.layerTitle +
+      '" but service reports "' + String(metadata.name || "") + '".'
+    );
+  }
+  if (spec.nameField && normalise(metadata.displayField) !== normalise(spec.nameField)) {
+    throw new Error(
+      'Public administrative display field changed: expected "' + spec.nameField +
+      '" but service reports "' + String(metadata.displayField || "") + '".'
+    );
+  }
+
+  return {
+    key,
+    sourceType: "public",
+    itemId: null,
+    itemTitle: "Queensland Government Administrative Boundaries",
+    itemType: "Map Service",
+    modified: null,
+    layerId: Number(spec.layerId),
+    layerTitle: String(metadata.name || spec.layerTitle),
+    nameField: spec.nameField || metadata.displayField || null,
+    path: ["Boundaries", "AdministrativeBoundaries", String(metadata.name || spec.layerTitle)],
+    geometryType: String(metadata.geometryType || "esriGeometryPolygon"),
+    queryUrl: spec.publicUrl,
+    score: 1000
   };
 }
 
@@ -463,50 +629,19 @@ async function resolveAdministrativeLayer(key, clearCached=false) {
 
   if (runtimeAdminLayers.has(key)) return runtimeAdminLayers.get(key);
 
-  const saved = loadSavedAdminLayer(key);
-  if (saved?.itemId) {
-    try {
-      const inspected = await inspectAdministrativeItem(
-        new PortalItem({ id: saved.itemId, portal }),
-        spec
-      );
-      if (inspected) {
-        const resolved = { ...inspected, key };
-        runtimeAdminLayers.set(key, resolved);
-        saveAdminLayer(key, resolved);
-        return resolved;
-      }
-    } catch {}
-    removeLocal(adminStorageKey(key));
+  let resolved;
+  if (spec.sourceType === "public") {
+    resolved = await resolvePublicAdministrativeLayer(key, spec);
+  } else if (spec.sourceType === "portal-item") {
+    const saved = loadSavedAdminLayer(key);
+    resolved = await resolveExactPortalAdministrativeLayer(key, spec, saved);
+    saveAdminLayer(key, resolved);
+  } else {
+    throw new Error("Unsupported administrative source type for " + key + ".");
   }
 
-  const items = await findAdministrativeItems(spec);
-  let best = null;
-  const candidates = items.slice(0, 24);
-  const batchSize = 6;
-
-  for (let start = 0; start < candidates.length; start += batchSize) {
-    const batch = candidates.slice(start, start + batchSize);
-    const inspectedBatch = await Promise.allSettled(
-      batch.map((item) => inspectAdministrativeItem(item, spec))
-    );
-
-    inspectedBatch.forEach((entry) => {
-      if (entry.status !== "fulfilled" || !entry.value) return;
-      const resolved = { ...entry.value, key };
-      if (!best || resolved.score > best.score) best = resolved;
-    });
-
-    if (best?.score >= 900) break;
-  }
-
-  if (!best) {
-    throw new Error('The authenticated polygon layer "' + spec.leafTitle + '" could not be resolved from accessible ArcGIS content.');
-  }
-
-  runtimeAdminLayers.set(key, best);
-  saveAdminLayer(key, best);
-  return best;
+  runtimeAdminLayers.set(key, resolved);
+  return resolved;
 }
 
 async function resolveAllAdministrativeLayers(clearCached=false) {

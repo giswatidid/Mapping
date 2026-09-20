@@ -7,8 +7,8 @@
   <meta name="theme-color" content="#12161d" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
   <title>Queensland Warning Mapping</title>
-  <link rel="stylesheet" href="styles.css?v=20260920-browser22">
-  <link rel="stylesheet" href="auth.css?v=20260920-browser22">
+  <link rel="stylesheet" href="styles.css?v=20260920-browser23">
+  <link rel="stylesheet" href="auth.css?v=20260920-browser23">
 </head>
 <body>
   <main id="loginGate" class="auth-page" hidden>
@@ -125,7 +125,7 @@
         <div class="panel-header">
           <div class="panel-title">
             <h2>Affected administrative areas</h2>
-            <p>Uses the actual warning raster pixels rather than the rectangular map extent. Administrative polygon layers are resolved from the signed-in ArcGIS session where available.</p>
+            <p>Uses the actual warning raster pixels rather than the rectangular map extent. Local government boundaries use the Queensland Government administrative-boundary service; disaster districts use the signed-in ArcGIS session.</p>
           </div>
           <div class="panel-scope"><span id="affectedAreasStatus" class="mini-chip">Generate to analyse</span></div>
         </div>
@@ -139,7 +139,7 @@
               </div>
             </div>
             <p id="affectedLgaList">Generate a Severe Thunderstorm or Severe Weather map to analyse affected LGAs.</p>
-            <small id="affectedLgaSource">Authenticated Local government layer preferred; public Queensland LGA boundaries are the fallback.</small>
+            <small id="affectedLgaSource">Connecting to the Queensland Government Local government boundary layer.</small>
           </article>
           <article class="affected-area-card">
             <div class="affected-area-heading">
@@ -206,10 +206,10 @@
     </footer>
   </div>
 
-  <script src="config.js?v=20260920-browser22"></script>
+  <script src="config.js?v=20260920-browser23"></script>
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
-  <script type="module" src="arcgis-auth.js?v=20260920-browser22"></script>
-  <script src="app.js?v=20260920-browser22"></script>
-  <script src="renderer.js?v=20260920-browser22"></script>
+  <script type="module" src="arcgis-auth.js?v=20260920-browser23"></script>
+  <script src="app.js?v=20260920-browser23"></script>
+  <script src="renderer.js?v=20260920-browser23"></script>
 </body>
 </html>

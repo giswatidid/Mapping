@@ -230,16 +230,21 @@
     const lga = adminBoundaryState.localGovernment;
     const district = adminBoundaryState.disasterDistricts;
 
-    if (lga.status === "authenticated") {
+    if (lga.status === "public") {
+      setBoundarySourceBadge(affectedLgaSourceState, "ok", "Public source");
+      if (affectedLgaSource) {
+        affectedLgaSource.textContent = "Queensland Government Local government layer connected: AdministrativeBoundaries › Local government.";
+      }
+    } else if (lga.status === "authenticated") {
       setBoundarySourceBadge(affectedLgaSourceState, "ok", "Authenticated");
       if (affectedLgaSource) {
         const path = boundaryPathLabel(lga.layer);
         affectedLgaSource.textContent = "Authenticated ArcGIS layer connected" + (path ? ": " + path + "." : ".");
       }
     } else if (lga.status === "unavailable") {
-      setBoundarySourceBadge(affectedLgaSourceState, "warning", "Public fallback");
+      setBoundarySourceBadge(affectedLgaSourceState, "error", "Unavailable");
       if (affectedLgaSource) {
-        affectedLgaSource.textContent = "Private Local government layer was not resolved; using the public Queensland Government LGA boundary source.";
+        affectedLgaSource.textContent = "Queensland Government Local government layer could not be verified.";
       }
     } else {
       setBoundarySourceBadge(affectedLgaSourceState, "warning", "Resolving");
@@ -272,7 +277,11 @@
       const result = detail?.[key];
       if (!result) continue;
       adminBoundaryState[key] = result.ok
-        ? { status: "authenticated", layer: result.layer || null, error: "" }
+        ? {
+            status: result.layer?.sourceType === "public" ? "public" : "authenticated",
+            layer: result.layer || null,
+            error: ""
+          }
         : { status: "unavailable", layer: null, error: String(result.error || "") };
     }
     renderBoundarySourceState();
@@ -320,7 +329,9 @@
     }
     // Source availability is displayed independently from the warning result.
     // A run may use the public LGA fallback while private discovery continues.
-    if (result.lgaSource === "authenticated") {
+    if (result.lgaSource === "public") {
+      adminBoundaryState.localGovernment.status = "public";
+    } else if (result.lgaSource === "authenticated") {
       adminBoundaryState.localGovernment.status = "authenticated";
     }
     if (result.districtAvailable) {
@@ -794,24 +805,8 @@
   }
 
   async function loadPreferredLga(extent) {
-    const arcgis = window.MAPPING_ARCGIS;
-    const resolved = arcgis?.getAdministrativeLayer?.("localGovernment");
-
-    if (resolved?.available && arcgis?.queryResolvedAdministrativeLayer) {
-      try {
-        const privateLga = await promiseTimeout(
-          arcgis.queryResolvedAdministrativeLayer("localGovernment", extent, "*"),
-          5000,
-          "Authenticated Local government query timed out."
-        );
-        if (Array.isArray(privateLga?.features) && privateLga.features.length) {
-          return { ...privateLga, _source: "authenticated" };
-        }
-      } catch {}
-    }
-
-    const fallback = await queryArcgis(publicSources.lga, extent, "1=1", "*");
-    return { ...fallback, _source: "public" };
+    const layer = await queryArcgis(publicSources.lga, extent, "1=1", "*");
+    return { ...layer, _source: "public" };
   }
 
   async function loadDisasterDistricts(extent) {
@@ -929,7 +924,7 @@
     const props = feature?.properties || {};
     const aliases = kind === "district"
       ? [
-          "ddmg_name", "ddmg", "disaster_district_name", "disaster_district",
+          "PROP_DD", "prop_dd", "ddmg_name", "ddmg", "disaster_district_name", "disaster_district",
           "district_name", "district", "name", "NAME"
         ]
       : [
