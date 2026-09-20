@@ -6,9 +6,9 @@
   <meta name="theme-color" content="#f5f5f5" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#12161d" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
-  <title>Queensland Severe Thunderstorm Mapping</title>
-  <link rel="stylesheet" href="styles.css?v=20260918-browser18">
-  <link rel="stylesheet" href="auth.css?v=20260918-browser18">
+  <title>Queensland Warning Mapping</title>
+  <link rel="stylesheet" href="styles.css?v=20260920-browser19">
+  <link rel="stylesheet" href="auth.css?v=20260920-browser19">
 </head>
 <body>
   <main id="loginGate" class="auth-page" hidden>
@@ -39,8 +39,8 @@
     <header class="topbar">
       <div class="title-block">
         <div class="product-kicker">Queensland operational mapping</div>
-        <h1>Severe Thunderstorm Mapping</h1>
-        <p>Generate two current operational products using authenticated Bureau warning/radar WMS feeds plus public Queensland infrastructure data.</p>
+        <h1>Warning Mapping</h1>
+        <p>Generate current severe-thunderstorm, severe-weather and flood products using authenticated Bureau warning/radar WMS feeds plus public Queensland infrastructure data.</p>
       </div>
 
       <div class="topbar-side">
@@ -61,12 +61,19 @@
     </header>
 
     <div class="nav-row">
-      <div class="actions">
-        <button id="generateButton" class="primary" type="button" disabled>Generate maps</button>
-        <label class="tracking-toggle" for="cellTrackingToggle" title="Adds storm cell and storm direction overlays from the authenticated warning WMS. Warning extent detection still uses only the severe thunderstorm warning layer.">
-          <input id="cellTrackingToggle" type="checkbox">
-          <span>Include thunderstorm cell tracking</span>
-        </label>
+      <div class="nav-primary">
+        <div class="hazard-tabs" role="tablist" aria-label="Warning type">
+          <button class="hazard-tab active" type="button" role="tab" aria-selected="true" data-warning-profile="thunderstorm">Severe Thunderstorm</button>
+          <button class="hazard-tab" type="button" role="tab" aria-selected="false" data-warning-profile="severeWeather">Severe Weather</button>
+          <button class="hazard-tab" type="button" role="tab" aria-selected="false" data-warning-profile="flooding">Flooding</button>
+        </div>
+        <div class="actions">
+          <button id="generateButton" class="primary" type="button" disabled>Generate maps</button>
+          <label id="trackingToggleLabel" class="tracking-toggle" for="cellTrackingToggle" title="Adds storm cell and storm direction overlays from the authenticated warning WMS. Warning extent detection still uses only the severe thunderstorm warning layer.">
+            <input id="cellTrackingToggle" type="checkbox">
+            <span>Include thunderstorm cell tracking</span>
+          </label>
+        </div>
       </div>
       <div class="utility-actions">
         <button id="themeToggleBtn" class="control-btn" type="button" aria-pressed="false">Night mode</button>
@@ -78,7 +85,7 @@
         <div class="panel-header">
           <div class="panel-title">
             <h2>Standard authenticated feeds</h2>
-            <p>The application automatically locates these shared WMS items after sign-in and restricts each service to the required operational sublayer.</p>
+            <p>The application locates the shared Bureau WMS items after sign-in and renders only the operational sublayers required by the selected warning tab.</p>
           </div>
           <div class="panel-scope">
             <button id="reconnectSources" type="button">Reconnect standard feeds</button>
@@ -109,16 +116,35 @@
       <section id="statusCard" class="scope-banner warning" aria-live="polite">
         <div class="scope-copy">
           <strong id="statusTitle">Verifying authenticated feeds…</strong>
-          <span id="statusMessage">Checking that the standard warning and radar WMS sublayers are available to this ArcGIS account.</span>
+          <span id="statusMessage">Checking that the standard warning and radar WMS services are available to this ArcGIS account.</span>
         </div>
         <span id="statusBadge" class="scope-badge warning">Checking</span>
+      </section>
+
+      <section id="floodSelectionPanel" class="panel flood-selection-panel" hidden>
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>Flood warning / watch selection</h2>
+            <p>Flood maps are generated for one warning or watch product at a time. A single Flood Warning may contain multiple catchments; those detected catchments are grouped into the same warning where a product identifier is available.</p>
+          </div>
+          <div class="panel-scope">
+            <button id="refreshFloodProducts" type="button">Refresh active flood products</button>
+            <span id="floodSelectionStatus" class="mini-chip">Not scanned</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div id="floodCandidateList" class="flood-candidate-list">
+            <div class="empty-state">Open the Flooding tab while connected to scan the current Flood Warning and Flood Watch layers.</div>
+          </div>
+          <p id="floodSelectionNote" class="flood-selection-note">The selected product controls the output extent. Both Flood Warning and Flood Watch overlays remain visible within that selected extent.</p>
+        </div>
       </section>
 
       <section class="panel maps-panel">
         <div class="panel-header">
           <div class="panel-title">
             <h2>Map products</h2>
-            <p>Exactly two products are generated for the signed-in session: Warning + Radar and Warning + Infrastructure Impacts.</p>
+            <p id="mapProductsDescription">Exactly two products are generated for the selected warning type: Warning + Radar and Warning + Infrastructure Impacts.</p>
           </div>
           <div class="panel-scope"><span class="mini-chip">Authenticated JPEG</span></div>
         </div>
@@ -132,7 +158,7 @@
         <div class="panel-header">
           <div class="panel-title">
             <h2>Data feeds</h2>
-            <p>Authenticated Bureau weather feeds remain within the ArcGIS-authenticated workflow. Power outages and road conditions continue to use their public Queensland sources.</p>
+            <p>Authenticated Bureau weather feeds remain within the ArcGIS-authenticated workflow. Power outages, road conditions and public flood-catchment reference data use public sources.</p>
           </div>
           <div class="panel-scope"><span class="mini-chip">Browser session</span></div>
         </div>
@@ -146,10 +172,10 @@
     </footer>
   </div>
 
-  <script src="config.js?v=20260918-browser18"></script>
+  <script src="config.js?v=20260920-browser19"></script>
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
-  <script type="module" src="arcgis-auth.js?v=20260918-browser18"></script>
-  <script src="app.js?v=20260918-browser18"></script>
-  <script src="renderer.js?v=20260918-browser18"></script>
+  <script type="module" src="arcgis-auth.js?v=20260920-browser19"></script>
+  <script src="app.js?v=20260920-browser19"></script>
+  <script src="renderer.js?v=20260920-browser19"></script>
 </body>
 </html>

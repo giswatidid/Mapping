@@ -509,6 +509,102 @@ async function renderWmsPrintImage(role, extent, width, height, sourceOverride=n
   };
 }
 
+function parseFeatureInfoText(value) {
+  const text = String(value || "");
+  const properties = {};
+
+  text.split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || /^getfeatureinfo/i.test(trimmed) || /^layer\b/i.test(trimmed) || /^feature\b/i.test(trimmed)) return;
+
+    const equals = trimmed.indexOf("=");
+    const colon = trimmed.indexOf(":");
+    let splitAt = equals > 0 ? equals : colon;
+    if (splitAt <= 0) return;
+
+    const key = trimmed.slice(0, splitAt).trim().replace(/^["']|["']$/g, "");
+    let entry = trimmed.slice(splitAt + 1).trim();
+    entry = entry.replace(/^["']|["']$/g, "");
+    if (!key || !entry) return;
+    properties[key] = entry;
+  });
+
+  return properties;
+}
+
+async function getWmsFeatureInfo(role, extent, width, height, pixelX, pixelY, options={}) {
+  const spec = cfg.standardSources?.[role];
+  const source = runtimeSources.get(role)?.source || loadSavedSource(role);
+  if (!spec || !source?.itemId) throw new Error("The standard " + role + " WMS has not been resolved.");
+
+  const { data, serviceUrl } = await getPortalItemAndData(source);
+  if (!serviceUrl) throw new Error("The authenticated WMS item does not expose a service URL.");
+
+  const requestConfig = buildWmsRequestConfig(serviceUrl, data);
+  if (!requestConfig?.url) throw new Error("The authenticated WMS item does not expose a usable GetFeatureInfo URL.");
+
+  const title = String(options.sublayerTitle || spec.sublayerTitle || "").trim();
+  const configuredName = String(spec.wmsLayerNames?.[title] || (
+    normalise(title) === normalise(spec.sublayerTitle) ? spec.wmsLayerName : ""
+  ) || "").trim();
+  const metadata = findSublayerMetadata(data, title);
+  const name = configuredName || metadata?.name;
+  if (!name) throw new Error('Required WMS sublayer is not available: "' + title + '".');
+
+  const bounds = Array.isArray(extent)
+    ? extent
+    : [extent.xmin, extent.ymin, extent.xmax, extent.ymax];
+  const spatialReference = Number(options.spatialReference || 4326);
+  const version = String(requestConfig.version || "1.3.0");
+  const is130 = version.startsWith("1.3");
+  const crs = "EPSG:" + spatialReference;
+  const requestBounds = is130 && spatialReference === 4326
+    ? [bounds[1], bounds[0], bounds[3], bounds[2]]
+    : bounds;
+
+  const target = new URL(requestConfig.url, portalUrl || window.location.href);
+  const params = {
+    SERVICE: "WMS",
+    VERSION: version,
+    REQUEST: "GetFeatureInfo",
+    LAYERS: name,
+    QUERY_LAYERS: name,
+    STYLES: "",
+    FORMAT: "image/png",
+    INFO_FORMAT: "text/plain",
+    WIDTH: Math.max(1, Math.round(width)),
+    HEIGHT: Math.max(1, Math.round(height)),
+    BBOX: requestBounds.join(",")
+  };
+
+  if (is130) {
+    params.CRS = crs;
+    params.I = Math.max(0, Math.min(params.WIDTH - 1, Math.round(pixelX)));
+    params.J = Math.max(0, Math.min(params.HEIGHT - 1, Math.round(pixelY)));
+  } else {
+    params.SRS = crs;
+    params.X = Math.max(0, Math.min(params.WIDTH - 1, Math.round(pixelX)));
+    params.Y = Math.max(0, Math.min(params.HEIGHT - 1, Math.round(pixelY)));
+  }
+
+  Object.entries(params).forEach(([key, value]) => target.searchParams.set(key, String(value)));
+
+  const response = await esriRequest(target.toString(), {
+    responseType: "text",
+    authMode: "auto"
+  });
+
+  const text = typeof response?.data === "string"
+    ? response.data
+    : String(response?.data || "");
+
+  return {
+    sublayerTitle: title,
+    sublayerName: name,
+    properties: parseFeatureInfoText(text)
+  };
+}
+
 async function testPrintServiceWms(role, source, metadata) {
   const result = await renderWmsPrintImage(
     role,
@@ -787,6 +883,9 @@ async function showApp() {
     },
     renderWmsImage(role, extent, width, height, options={}) {
       return renderWmsPrintImage(role, extent, width, height, null, null, options);
+    },
+    getWmsFeatureInfo(role, extent, width, height, pixelX, pixelY, options={}) {
+      return getWmsFeatureInfo(role, extent, width, height, pixelX, pixelY, options);
     },
     renderBasemapImage(extent, width, height, options={}) {
       return renderTopographicBasemap(extent, width, height, options);

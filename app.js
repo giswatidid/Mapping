@@ -14,8 +14,8 @@ const els = {
 };
 
 const sourceState = {
-  warning: { status: "checking", message: "Verifying authenticated standard WMS sublayer." },
-  radar: { status: "checking", message: "Verifying authenticated standard WMS sublayer." },
+  warning: { status: "checking", message: "Verifying authenticated Bureau warning WMS." },
+  radar: { status: "checking", message: "Verifying authenticated radar rain-rate WMS." },
   outages: { status: "configured", message: "Public current unplanned outage GeoJSON." },
   road_conditions: { status: "configured", message: "Public live QLD Traffic GeoJSON." }
 };
@@ -67,7 +67,7 @@ function setFeedStatus(detail) {
   const radarOk = Boolean(detail?.radar?.ok);
 
   sourceState.warning = warningOk
-    ? { status: "ok", message: "Standard severe-thunderstorm warning WMS sublayer verified for this ArcGIS session." }
+    ? { status: "ok", message: "Authenticated Bureau warning WMS verified for this ArcGIS session." }
     : { status: "error", message: detail?.warning?.error || "Standard warning WMS could not be verified." };
 
   sourceState.radar = radarOk
@@ -81,14 +81,14 @@ function setFeedStatus(detail) {
     els.badge.className = "scope-badge ok";
     els.badge.textContent = "Feeds ready";
     els.title.textContent = "Standard authenticated feeds connected";
-    els.message.textContent = "Both required Bureau WMS services and their exact operational sublayers were verified in this signed-in browser session.";
-    els.empty.textContent = "Authenticated feeds are ready. The renderer will create the two map products without publishing private weather data to GitHub.";
+    els.message.textContent = "The Bureau warning WMS and radar rain-rate WMS are available in this signed-in browser session.";
+    els.empty.textContent = "Authenticated feeds are ready. Choose a warning tab and generate the two map products.";
   } else {
     els.statusCard.className = "scope-banner error";
     els.badge.className = "scope-badge error";
     els.badge.textContent = "Source error";
     els.title.textContent = "A standard authenticated feed could not be verified";
-    els.message.textContent = "Use “Reconnect standard feeds” after checking that the two shared WMS items remain available to this ArcGIS account.";
+    els.message.textContent = "Use “Reconnect standard feeds” after checking that the shared WMS items remain available to this ArcGIS account.";
     els.empty.textContent = "Map generation is unavailable until both authenticated WMS sources are verified.";
   }
 

@@ -1,19 +1,38 @@
-# Queensland Severe Thunderstorm Mapping
+# Queensland Warning Mapping
 
-Browser-based operational mapping for Queensland severe thunderstorms.
+Browser-based operational mapping for Queensland severe thunderstorms, severe weather and flooding.
 
 The live application is:
 
 https://giswatidid.github.io/Mapping/
 
+## Warning tabs
+
+The browser app has three operational tabs:
+
+1. **Severe Thunderstorm**
+   - `IDZ20006` Severe Thunderstorm Warning
+   - optional `IDZ20007` storm cell and `IDZ20007_track` storm direction overlays
+   - extent detection always uses only `IDZ20006`
+2. **Severe Weather**
+   - `IDZ20005` Severe Weather Warning
+3. **Flooding**
+   - `IDZ20013` Flood Warning
+   - `IDZ20016` Flood Watch
+   - Flood Warning/Watch selection determines the output extent rather than combining every flood product in Queensland
+
+The flood selector is warning/watch driven. A Flood Warning can contain multiple catchments. The app first tries the authenticated WMS `GetFeatureInfo` response for a stable product/event identifier. For Flood Warnings it also uses the Bureau's public Flood Warning Catchments reference layer and its `product_id` field as a grouping fallback. If a Flood Watch does not expose a product identifier, the app lists its separate detected watch areas rather than incorrectly merging all watches statewide.
+
 ## Operational products
 
-The application is intentionally limited to two products:
+Every tab produces exactly two final JPEG products:
 
-1. **Warning + Radar**
-2. **Warning + Infrastructure Impacts**
+1. **Warning/Watch + Radar**
+2. **Warning/Watch + Infrastructure Impacts**
 
-When multiple severe-thunderstorm warnings are active, they are treated as one combined operational extent. When no warning is active, the same two products use a statewide Queensland extent.
+For Severe Thunderstorm and Severe Weather, multiple active polygons are combined into the detected warning extent. If no active product is detected, the same two products use a statewide Queensland extent.
+
+For Flooding, the user selects one active Flood Warning or Flood Watch. The selected product controls the output extent; both flood-warning and flood-watch overlays remain visible inside that extent. If no active flood product is detected, statewide output remains available.
 
 ## Authentication and privacy
 
@@ -30,21 +49,28 @@ The repository does **not** contain:
 - client secrets
 - private rendered weather output
 
-Resolved ArcGIS item IDs are cached only in browser localStorage for the signed-in organisation.
+Resolved ArcGIS item IDs are cached only in browser localStorage for the signed-in organisation. Registered WMS GetMap parameters remain in memory and are reused for operational rendering; they are not displayed or persisted.
 
 ## Standard authenticated weather feeds
 
-After sign-in the application automatically locates these shared ArcGIS WMS items by title and verifies the exact operational sublayer.
-
-### Severe thunderstorm warning
+### Warning WMS
 
 Parent WMS item title:
 
 `BoM Severe Weather Warning WMS APIM PRD`
 
-Required sublayer:
+Operational layer mappings used by the app:
 
-`Severe Thunderstorm Warning | Australia`
+- `IDZ20005` — Severe Weather Warning
+- `IDZ20006` — Severe Thunderstorm Warning
+- `IDZ20007` — Severe Thunderstorm Warning Storm Cell
+- `IDZ20007_track` — Severe Thunderstorm Warning Storm Direction
+- `IDZ20013` — Flood Warning
+- `IDZ20013_label` — Flood Warning Catchment Name
+- `IDZ20016` — Flood Watch
+- `IDZ20016_label` — Flood Watch Catchment Name
+
+The UTC storm-cell time layer remains intentionally excluded.
 
 ### Radar
 
@@ -54,41 +80,42 @@ Parent WMS item title:
 
 Required sublayer:
 
-`Radar Rain Rate | Australia | raster`
+`IDR00010` — Radar Rain Rate | Australia | raster
 
 The item IDs and service URLs are discovered after authentication and are never hard-coded in the repository.
 
-The application restricts each WMS to the required operational sublayers rather than rendering every layer exposed by the service. The warning WMS can optionally add storm-cell and storm-direction overlays without changing warning-extent detection. The UTC storm-cell time layer is intentionally excluded.
-
-## Public infrastructure sources
+## Public infrastructure and reference sources
 
 ### Power outages
 
-Current unplanned outages:
-
 `https://raw.githubusercontent.com/gowlettluke/qldpoweroutages/main/data/current_outages.geojson`
 
-Polygon/MultiPolygon outage geometry is retained. Points are used only when the upstream source genuinely provides point geometry.
+Only current unplanned outages are mapped. Polygon/MultiPolygon geometry is retained; points are used only when the source genuinely has no polygon.
 
 ### Road conditions
 
-Live QLD Traffic events:
-
 `https://data.qldtraffic.qld.gov.au/events_v2.geojson`
 
-The operational rules remain:
+Rules remain:
 
 - future events are ignored until their start time
 - expired events are ignored
 - only current/published events are used
-- area-alert polygons are contextual and are not treated as road closures unless explicit road-line geometry is supplied
+- area-alert polygons alone are not treated as closures
 - full closures/impassable roads are red
 - restrictions/conditional access are amber
-- statewide quiet-day products suppress conditional restrictions to avoid clutter
+- statewide quiet-day products suppress conditional restrictions
 
-## Queensland reference data
+### Bureau flood-catchment reference data
 
-Queensland Government ArcGIS FeatureServers provide:
+Public Bureau FeatureServer layers are used only to help identify/group flood products:
+
+- Flood Watch Catchments: `National_Flood_Gauge_Network/FeatureServer/0`
+- Flood Warning Catchments: `National_Flood_Gauge_Network/FeatureServer/1`
+
+They do not replace the authenticated active Flood Warning/Flood Watch WMS layers.
+
+### Queensland Government reference data
 
 - LGA boundaries: `Boundaries/AdminBoundariesFramework/FeatureServer/11`
 - coastline: `Basemaps/FoundationData/FeatureServer/55`
@@ -97,9 +124,7 @@ Queensland Government ArcGIS FeatureServers provide:
 - population centres: `Location/Places/FeatureServer/20`
 - major roads: `Basemaps/FoundationData/FeatureServer/23`
 
-The true coastline/state border is used rather than the offshore outer edge of LGA administrative polygons.
-
-## Current architecture
+## Rendering architecture
 
 ```text
 Browser
@@ -109,55 +134,29 @@ generic ArcGIS organisation-prefix login
 ArcGIS OAuth / organisation SSO
   ↓
 authenticated shared WMS discovery
-  ├─ severe-thunderstorm warning WMS
+  ├─ warning WMS
+  │   ├─ severe thunderstorm
+  │   ├─ severe weather
+  │   └─ flood warning / flood watch
   └─ radar rain-rate WMS
   ↓
-public Queensland outage / road / reference data
+public Queensland infrastructure/reference data
   ↓
-client-side map rendering
+ArcGIS Topographic + shared EPSG:3857 render extent
+  ↓
+client-side composition
   ↓
 two browser-generated JPEG products
 ```
 
-Private weather data is not sent to GitHub Actions and is not committed to the repository.
+The registered WMS request configuration is preserved so the browser does not rebuild the private service request from a bare URL.
 
 ## GitHub Actions
 
 There is **no live scheduled map-generation workflow**.
 
-The former server-side generation workflow and Cloudflare workflow-dispatch relay have been removed because authenticated ArcGIS data must be accessed in the signed-in browser session.
-
-`.github/workflows/test-demo-maps.yml` remains **manual-only** as a synthetic renderer-development aid. It does not publish live operational maps.
-
-## Cartographic priorities
-
-### Warning + Radar
-
-Bottom to top:
-
-1. restrained land/water context
-2. major roads and selected population centres
-3. LGA boundaries/names
-4. severe-thunderstorm warning
-5. radar
-6. warning outline/operational emphasis
-
-### Warning + Infrastructure Impacts
-
-Bottom to top:
-
-1. restrained land/water context
-2. major roads and selected population centres
-3. LGA boundaries/names
-4. severe-thunderstorm warning
-5. power outage polygons
-6. road closures/restrictions
-7. outage customer labels
-
-On active-warning maps, LGA labels provide low-priority background context. On statewide quiet-day maps, LGA labels are suppressed.
+`.github/workflows/test-demo-maps.yml` remains manual-only as a synthetic renderer-development aid. It does not publish live operational maps.
 
 ## Legacy Python renderer
 
-The repository still contains the earlier Python renderer and synthetic tests as development/reference code while the browser renderer reaches full parity.
-
-It is not used for live authenticated ArcGIS map generation and no automatic workflow invokes it.
+The repository still contains the earlier Python renderer and synthetic tests as development/reference code. It is not used for live authenticated ArcGIS map generation.

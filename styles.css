@@ -519,3 +519,140 @@ main { display: grid; gap: 10px; }
 
   .map-info { display: grid; }
 }
+
+
+/* Warning profile navigation */
+.nav-primary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.hazard-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel2);
+}
+
+.hazard-tab {
+  min-height: 30px;
+  padding: 0 11px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.hazard-tab:hover {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.hazard-tab.active {
+  border-color: var(--accent-border);
+  background: var(--accent-soft-2);
+  color: var(--accent-dark);
+}
+
+.flood-selection-panel[hidden],
+.tracking-toggle[hidden] {
+  display: none !important;
+}
+
+.flood-candidate-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.flood-candidate {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.flood-candidate:hover {
+  background: var(--panel2);
+  border-color: var(--line-strong);
+}
+
+.flood-candidate.selected {
+  border-color: var(--blue-border);
+  background: var(--blue-soft);
+}
+
+.flood-candidate input {
+  margin: 2px 0 0;
+  accent-color: var(--blue);
+}
+
+.flood-candidate-copy {
+  min-width: 0;
+}
+
+.flood-candidate-copy strong,
+.flood-candidate-copy small {
+  display: block;
+}
+
+.flood-candidate-copy strong {
+  color: var(--text);
+  font-size: .88rem;
+  line-height: 1.3;
+}
+
+.flood-candidate-copy small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: .76rem;
+  line-height: 1.3;
+}
+
+.flood-selection-note {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: .78rem;
+  line-height: 1.35;
+}
+
+@media (max-width: 900px) {
+  .nav-primary {
+    align-items: stretch;
+  }
+
+  .hazard-tabs {
+    width: 100%;
+  }
+
+  .hazard-tab {
+    flex: 1 1 0;
+  }
+
+  .flood-candidate-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .nav-primary {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .hazard-tabs {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}

@@ -16,9 +16,36 @@
   const warningCount = document.querySelector("#warningCount");
   const modeEl = document.querySelector("#mode");
   const cellTrackingToggle = document.querySelector("#cellTrackingToggle");
+  const trackingToggleLabel = document.querySelector("#trackingToggleLabel");
+  const warningLayerDetail = document.querySelector("#warningLayerDetail");
+  const mapProductsDescription = document.querySelector("#mapProductsDescription");
+  const profileButtons = [...document.querySelectorAll("[data-warning-profile]")];
+  const floodSelectionPanel = document.querySelector("#floodSelectionPanel");
+  const floodCandidateList = document.querySelector("#floodCandidateList");
+  const floodSelectionStatus = document.querySelector("#floodSelectionStatus");
+  const floodSelectionNote = document.querySelector("#floodSelectionNote");
+  const refreshFloodProductsButton = document.querySelector("#refreshFloodProducts");
   const TRACKING_PREF_KEY = "mapping.includeThunderstormCellTracking";
+  const PROFILE_PREF_KEY = "mapping.warningProfile";
+  const PROFILES = cfg.arcgis?.warningProfiles || {};
 
   let outputUrls = [];
+  let feedsReady = false;
+  let generating = false;
+  let scanningFloods = false;
+  let floodScanned = false;
+  let floodCandidates = [];
+  let selectedFloodCandidateId = null;
+
+  function storedProfileKey() {
+    try {
+      const saved = localStorage.getItem(PROFILE_PREF_KEY);
+      if (saved && PROFILES[saved]) return saved;
+    } catch {}
+    return PROFILES.thunderstorm ? "thunderstorm" : Object.keys(PROFILES)[0];
+  }
+
+  let activeProfileKey = storedProfileKey();
 
   // Same BOM rain-rate key used by the previous registered-WMS renderer.
   const RAIN_RATE_LEGEND = [
@@ -55,11 +82,118 @@
     } catch {}
   }
 
-  function trackingTitles() {
-    const warningSpec = cfg.arcgis?.standardSources?.warning || {};
-    return Array.isArray(warningSpec.trackingSublayerTitles)
-      ? warningSpec.trackingSublayerTitles.filter(Boolean)
+  function currentProfile() {
+    return PROFILES[activeProfileKey] || PROFILES.thunderstorm || {
+      key: "thunderstorm",
+      label: "Severe Thunderstorm",
+      outputTitle: "Severe Thunderstorm Warning",
+      detectionSublayerTitles: ["Severe Thunderstorm Warning | Australia"],
+      renderSublayerTitles: ["Severe Thunderstorm Warning | Australia"],
+      supportsTracking: true,
+      trackingSublayerTitles: [
+        "Severe Thunderstorm Warning Storm Direction | Australia",
+        "Severe Thunderstorm Warning Storm Cell | Australia"
+      ],
+      legendLabel: "Severe thunderstorm warning",
+      filenamePrefix: "warning",
+      activeScopeLabel: "severe-thunderstorm warning"
+    };
+  }
+
+  function profileTitles(profile, key) {
+    const values = profile?.[key];
+    return Array.isArray(values) ? values.filter(Boolean) : [];
+  }
+
+  function trackingTitles(profile=currentProfile()) {
+    return profile?.supportsTracking
+      ? profileTitles(profile, "trackingSublayerTitles")
       : [];
+  }
+
+  function updateWarningSourceDetail(profile=currentProfile()) {
+    if (!warningLayerDetail) return;
+    const titles = profileTitles(profile, "renderSublayerTitles");
+    warningLayerDetail.textContent = (titles.length > 1 ? "Sublayers: " : "Sublayer: ") + titles.join(" + ");
+  }
+
+  function updateProfileControls() {
+    const profile = currentProfile();
+    const isFlooding = profile.key === "flooding";
+
+    profileButtons.forEach((button) => {
+      const active = button.dataset.warningProfile === activeProfileKey;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", String(active));
+    });
+
+    if (trackingToggleLabel) trackingToggleLabel.hidden = !profile.supportsTracking;
+    if (floodSelectionPanel) floodSelectionPanel.hidden = !isFlooding;
+    if (mapProductsDescription) {
+      mapProductsDescription.textContent = isFlooding
+        ? "Exactly two products are generated for the selected Flood Warning or Flood Watch: Warning/Watch + Radar and Warning/Watch + Infrastructure Impacts."
+        : "Exactly two products are generated for the selected warning type: Warning + Radar and Warning + Infrastructure Impacts.";
+    }
+
+    updateWarningSourceDetail(profile);
+    updateGenerateState();
+  }
+
+  function updateGenerateState() {
+    if (!generateButton) return;
+    const profile = currentProfile();
+    const needsFloodSelection = profile.key === "flooding" && floodCandidates.length > 0 && !selectedFloodCandidateId;
+    const waitingForFloodScan = profile.key === "flooding" && !floodScanned;
+    generateButton.disabled = !feedsReady || generating || scanningFloods || needsFloodSelection || waitingForFloodScan;
+    generateButton.textContent = generating ? "Generating…" : "Generate maps";
+
+    if (refreshFloodProductsButton) {
+      refreshFloodProductsButton.disabled = !feedsReady || scanningFloods || generating;
+      refreshFloodProductsButton.textContent = scanningFloods ? "Scanning…" : "Refresh active flood products";
+    }
+  }
+
+  function clearGeneratedProducts(message) {
+    revokeOutputs();
+    if (mapsEl) mapsEl.innerHTML = "";
+    if (emptyEl) {
+      emptyEl.hidden = false;
+      emptyEl.textContent = message;
+    }
+    if (generatedAt) generatedAt.textContent = "—";
+  }
+
+  function setActiveProfile(key, { persist=true, scanFloods=true }={}) {
+    if (!PROFILES[key] || key === activeProfileKey && profileButtons.length === 0) return;
+    activeProfileKey = key;
+    if (persist) {
+      try { localStorage.setItem(PROFILE_PREF_KEY, key); } catch {}
+    }
+
+    const profile = currentProfile();
+    clearGeneratedProducts(
+      profile.key === "flooding"
+        ? "Select an active Flood Warning or Flood Watch before generating the two map products."
+        : "Generate the two current " + profile.label.toLowerCase() + " map products."
+    );
+    if (warningCount) warningCount.textContent = "—";
+    if (modeEl) modeEl.textContent = profile.label;
+    updateProfileControls();
+
+    if (feedsReady) {
+      setStatus(
+        "ok",
+        profile.label + " mapping ready",
+        profile.key === "flooding"
+          ? "Scanning identifies active flood warning/watch products; select one product to control the map extent."
+          : "Generate maps to detect the current " + profile.activeScopeLabel + " extent and compose the two products.",
+        "Ready"
+      );
+    }
+
+    if (profile.key === "flooding" && feedsReady && scanFloods && !scanningFloods) {
+      scanFloodProducts().catch(() => {});
+    }
   }
 
   function cleanMessage(error, fallback="Map generation failed.") {
@@ -111,19 +245,41 @@
     return sums.map((v) => v / points.length);
   }
 
-  async function detectWarningExtent() {
-    const arcgis = window.MAPPING_ARCGIS;
-    if (!arcgis?.renderWmsImage) throw new Error("Authenticated ArcGIS rendering is not ready.");
+  function pixelToGeographic(x, y, width, height, extent=QLD_EXTENT) {
+    const [xmin, ymin, xmax, ymax] = extent;
+    return [
+      xmin + (x / width) * (xmax - xmin),
+      ymax - (y / height) * (ymax - ymin)
+    ];
+  }
 
-    const detectionSize = renderCfg.warningDetectionSize || [720, 900];
-    const result = await arcgis.renderWmsImage(
-      "warning",
-      QLD_EXTENT,
-      detectionSize[0],
-      detectionSize[1]
-    );
-    const image = await blobToBitmap(result.blob);
+  function padGeographicExtent(extent) {
+    const [xmin, ymin, xmax, ymax] = extent;
+    const lonSpan = Math.max(0.4, xmax - xmin);
+    const latSpan = Math.max(0.4, ymax - ymin);
+    const lonPad = Math.max(0.25, lonSpan * 0.16);
+    const latPad = Math.max(0.25, latSpan * 0.16);
+    return [
+      clamp(xmin - lonPad, QLD_EXTENT[0], QLD_EXTENT[2]),
+      clamp(ymin - latPad, QLD_EXTENT[1], QLD_EXTENT[3]),
+      clamp(xmax + lonPad, QLD_EXTENT[0], QLD_EXTENT[2]),
+      clamp(ymax + latPad, QLD_EXTENT[1], QLD_EXTENT[3])
+    ];
+  }
 
+  function unionExtents(extents) {
+    const valid = (extents || []).filter((extent) => Array.isArray(extent) && extent.length === 4);
+    if (!valid.length) return null;
+    return [
+      Math.min(...valid.map((extent) => extent[0])),
+      Math.min(...valid.map((extent) => extent[1])),
+      Math.max(...valid.map((extent) => extent[2])),
+      Math.max(...valid.map((extent) => extent[3]))
+    ];
+  }
+
+  async function analyseDetectionBlob(blob, detectionSize, { components=false }={}) {
+    const image = await blobToBitmap(blob);
     const canvas = document.createElement("canvas");
     canvas.width = detectionSize[0];
     canvas.height = detectionSize[1];
@@ -133,16 +289,21 @@
 
     const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
     const bg = backgroundSample(pixels, canvas.width, canvas.height);
+    const step = 2;
+    const gridWidth = Math.ceil(canvas.width / step);
+    const gridHeight = Math.ceil(canvas.height / step);
+    const visible = new Uint8Array(gridWidth * gridHeight);
 
     let minX = canvas.width;
     let minY = canvas.height;
     let maxX = -1;
     let maxY = -1;
     let hits = 0;
-    const step = 2;
 
-    for (let y = 0; y < canvas.height; y += step) {
-      for (let x = 0; x < canvas.width; x += step) {
+    for (let gy = 0; gy < gridHeight; gy += 1) {
+      const y = Math.min(canvas.height - 1, gy * step);
+      for (let gx = 0; gx < gridWidth; gx += 1) {
+        const x = Math.min(canvas.width - 1, gx * step);
         const i = (y * canvas.width + x) * 4;
         const a = pixels[i + 3];
         const alphaDelta = Math.abs(a - bg[3]);
@@ -151,9 +312,10 @@
           Math.abs(pixels[i + 1] - bg[1]) +
           Math.abs(pixels[i + 2] - bg[2]);
 
-        const visible = a > 12 && (alphaDelta > 18 || colourDelta > 55 || bg[3] < 25);
-        if (!visible) continue;
+        const isVisible = a > 12 && (alphaDelta > 18 || colourDelta > 55 || bg[3] < 25);
+        if (!isVisible) continue;
 
+        visible[gy * gridWidth + gx] = 1;
         hits += 1;
         minX = Math.min(minX, x);
         minY = Math.min(minY, y);
@@ -163,33 +325,116 @@
     }
 
     if (hits < 35 || maxX < minX || maxY < minY) {
-      return { active: false, extent: [...QLD_EXTENT], detectionBlob: result.blob };
+      return { active: false, extent: [...QLD_EXTENT], components: [] };
     }
 
-    const [xmin, ymin, xmax, ymax] = QLD_EXTENT;
-    const lonAt = (x) => xmin + (x / canvas.width) * (xmax - xmin);
-    const latAt = (y) => ymax - (y / canvas.height) * (ymax - ymin);
+    const rawExtent = [
+      pixelToGeographic(minX, maxY + step, canvas.width, canvas.height)[0],
+      pixelToGeographic(minX, maxY + step, canvas.width, canvas.height)[1],
+      pixelToGeographic(maxX + step, minY, canvas.width, canvas.height)[0],
+      pixelToGeographic(maxX + step, minY, canvas.width, canvas.height)[1]
+    ];
 
-    let wxmin = lonAt(minX);
-    let wxmax = lonAt(maxX + step);
-    let wymax = latAt(minY);
-    let wymin = latAt(maxY + step);
+    if (!components) {
+      return { active: true, extent: padGeographicExtent(rawExtent), components: [] };
+    }
 
-    const lonSpan = Math.max(0.4, wxmax - wxmin);
-    const latSpan = Math.max(0.4, wymax - wymin);
-    const lonPad = Math.max(0.25, lonSpan * 0.16);
-    const latPad = Math.max(0.25, latSpan * 0.16);
+    const visited = new Uint8Array(visible.length);
+    const found = [];
+    const neighbours = [-1, 0, 1];
 
-    wxmin = clamp(wxmin - lonPad, xmin, xmax);
-    wxmax = clamp(wxmax + lonPad, xmin, xmax);
-    wymin = clamp(wymin - latPad, ymin, ymax);
-    wymax = clamp(wymax + latPad, ymin, ymax);
+    for (let gy = 0; gy < gridHeight; gy += 1) {
+      for (let gx = 0; gx < gridWidth; gx += 1) {
+        const root = gy * gridWidth + gx;
+        if (!visible[root] || visited[root]) continue;
+
+        const queue = [[gx, gy]];
+        visited[root] = 1;
+        let cursor = 0;
+        let count = 0;
+        let cMinX = canvas.width;
+        let cMinY = canvas.height;
+        let cMaxX = -1;
+        let cMaxY = -1;
+        let sampleX = gx * step;
+        let sampleY = gy * step;
+
+        while (cursor < queue.length) {
+          const [cx, cy] = queue[cursor++];
+          const px = Math.min(canvas.width - 1, cx * step);
+          const py = Math.min(canvas.height - 1, cy * step);
+          count += 1;
+          cMinX = Math.min(cMinX, px);
+          cMinY = Math.min(cMinY, py);
+          cMaxX = Math.max(cMaxX, px);
+          cMaxY = Math.max(cMaxY, py);
+
+          for (const dy of neighbours) {
+            for (const dx of neighbours) {
+              if (!dx && !dy) continue;
+              const nx = cx + dx;
+              const ny = cy + dy;
+              if (nx < 0 || ny < 0 || nx >= gridWidth || ny >= gridHeight) continue;
+              const ni = ny * gridWidth + nx;
+              if (!visible[ni] || visited[ni]) continue;
+              visited[ni] = 1;
+              queue.push([nx, ny]);
+            }
+          }
+        }
+
+        if (count < 10) continue;
+        sampleX = Math.round((cMinX + cMaxX) / 2);
+        sampleY = Math.round((cMinY + cMaxY) / 2);
+
+        // If the bounding-box centre is not a visible sample, use the first
+        // visible cell in this component so GetFeatureInfo lands inside it.
+        const centerGX = Math.max(0, Math.min(gridWidth - 1, Math.round(sampleX / step)));
+        const centerGY = Math.max(0, Math.min(gridHeight - 1, Math.round(sampleY / step)));
+        if (!visible[centerGY * gridWidth + centerGX]) {
+          const [fallbackGX, fallbackGY] = queue[Math.floor(queue.length / 2)] || queue[0];
+          sampleX = Math.min(canvas.width - 1, fallbackGX * step);
+          sampleY = Math.min(canvas.height - 1, fallbackGY * step);
+        }
+
+        const southwest = pixelToGeographic(cMinX, cMaxY + step, canvas.width, canvas.height);
+        const northeast = pixelToGeographic(cMaxX + step, cMinY, canvas.width, canvas.height);
+        found.push({
+          extent: [southwest[0], southwest[1], northeast[0], northeast[1]],
+          sampleX,
+          sampleY,
+          sampleCoord: pixelToGeographic(sampleX, sampleY, canvas.width, canvas.height),
+          hits: count
+        });
+      }
+    }
 
     return {
       active: true,
-      extent: [wxmin, wymin, wxmax, wymax],
-      detectionBlob: result.blob
+      extent: padGeographicExtent(rawExtent),
+      components: found.sort((a, b) => b.hits - a.hits)
     };
+  }
+
+  async function renderDetectionLayer(sublayerTitles, { components=false }={}) {
+    const arcgis = window.MAPPING_ARCGIS;
+    if (!arcgis?.renderWmsImage) throw new Error("Authenticated ArcGIS rendering is not ready.");
+
+    const detectionSize = renderCfg.warningDetectionSize || [720, 900];
+    const result = await arcgis.renderWmsImage(
+      "warning",
+      QLD_EXTENT,
+      detectionSize[0],
+      detectionSize[1],
+      { sublayerTitles }
+    );
+    const analysis = await analyseDetectionBlob(result.blob, detectionSize, { components });
+    return { ...analysis, detectionBlob: result.blob, detectionSize };
+  }
+
+  async function detectWarningExtent(profile=currentProfile()) {
+    const titles = profileTitles(profile, "detectionSublayerTitles");
+    return renderDetectionLayer(titles, { components: false });
   }
 
   function lonLatToWebMercator(coord) {
@@ -421,6 +666,339 @@
     data.outagesNorm = normaliseOutages(data.outages || { features: [] }, extent);
     data.roadsNorm = normaliseRoads(data.traffic || { features: [] }, extent, statewide);
     return { data, warnings };
+  }
+
+  function normalisedPropertyMap(properties={}) {
+    const map = new Map();
+    Object.entries(properties || {}).forEach(([key, value]) => {
+      map.set(String(key).toLowerCase().replace(/[^a-z0-9]/g, ""), value);
+    });
+    return map;
+  }
+
+  function propertyValue(properties, aliases) {
+    const map = normalisedPropertyMap(properties);
+    for (const alias of aliases) {
+      const value = map.get(String(alias).toLowerCase().replace(/[^a-z0-9]/g, ""));
+      if (value != null && String(value).trim()) return String(value).trim();
+    }
+    return "";
+  }
+
+  function pointInRing(point, ring) {
+    let inside = false;
+    const x = point[0];
+    const y = point[1];
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i]?.[0];
+      const yi = ring[i]?.[1];
+      const xj = ring[j]?.[0];
+      const yj = ring[j]?.[1];
+      if (![xi, yi, xj, yj].every(Number.isFinite)) continue;
+      const intersects = ((yi > y) !== (yj > y)) &&
+        (x < (xj - xi) * (y - yi) / ((yj - yi) || Number.EPSILON) + xi);
+      if (intersects) inside = !inside;
+    }
+    return inside;
+  }
+
+  function pointInGeometry(point, geometry) {
+    if (!geometry || !Array.isArray(point)) return false;
+    if (geometry.type === "Polygon") {
+      const rings = geometry.coordinates || [];
+      if (!rings.length || !pointInRing(point, rings[0])) return false;
+      return !rings.slice(1).some((ring) => pointInRing(point, ring));
+    }
+    if (geometry.type === "MultiPolygon") {
+      return (geometry.coordinates || []).some((polygon) =>
+        pointInGeometry(point, { type: "Polygon", coordinates: polygon })
+      );
+    }
+    return false;
+  }
+
+  function catchmentAtPoint(collection, point) {
+    return (collection?.features || []).find((feature) => pointInGeometry(point, feature.geometry)) || null;
+  }
+
+  function summariseNames(names) {
+    const values = [...new Set((names || []).filter(Boolean))];
+    if (!values.length) return "";
+    if (values.length <= 2) return values.join(", ");
+    return values.slice(0, 2).join(", ") + " +" + (values.length - 2) + " more";
+  }
+
+  async function identifyFloodComponent(component, type, sublayerTitle, detectionSize, references) {
+    const arcgis = window.MAPPING_ARCGIS;
+    let info = null;
+    if (arcgis?.getWmsFeatureInfo) {
+      info = await arcgis.getWmsFeatureInfo(
+        "warning",
+        QLD_EXTENT,
+        detectionSize[0],
+        detectionSize[1],
+        component.sampleX,
+        component.sampleY,
+        { sublayerTitle, spatialReference: 4326 }
+      ).catch(() => null);
+    }
+
+    const properties = info?.properties || {};
+    let productId = propertyValue(properties, [
+      "product_id", "productid", "product_code", "productcode",
+      "warning_id", "warningid", "watch_id", "watchid",
+      "event_id", "eventid", "identifier"
+    ]);
+    let productTitle = propertyValue(properties, [
+      "warning_title", "watch_title", "product_name", "productname",
+      "headline", "title"
+    ]);
+    let catchmentName = propertyValue(properties, [
+      "dist_name", "catchment_name", "catchment", "area_name", "areaname"
+    ]);
+
+    const referenceCollection = type === "warning"
+      ? references.warningCatchments
+      : references.watchCatchments;
+    const referenceFeature = catchmentAtPoint(referenceCollection, component.sampleCoord);
+    const referenceProps = referenceFeature?.properties || {};
+
+    if (!catchmentName) catchmentName = String(referenceProps.dist_name || referenceProps.DIST_NAME || "").trim();
+    if (type === "warning" && !productId) {
+      productId = String(referenceProps.product_id || referenceProps.PRODUCT_ID || "").trim();
+    }
+
+    return {
+      ...component,
+      type,
+      sublayerTitle,
+      productId,
+      productTitle,
+      catchmentName,
+      featureInfoAvailable: Boolean(info && Object.keys(properties).length)
+    };
+  }
+
+  async function scanFloodLayer(sublayerTitle, type, references) {
+    const detected = await renderDetectionLayer([sublayerTitle], { components: true });
+    if (!detected.active) return [];
+
+    const limited = detected.components.slice(0, 40);
+    const identified = [];
+    for (const component of limited) {
+      identified.push(await identifyFloodComponent(
+        component,
+        type,
+        sublayerTitle,
+        detected.detectionSize,
+        references
+      ));
+    }
+    return identified;
+  }
+
+  function groupFloodComponents(components) {
+    const groups = new Map();
+    let fallbackIndex = 0;
+
+    components.forEach((component) => {
+      const typeLabel = component.type === "warning" ? "Flood Warning" : "Flood Watch";
+      const identity = component.productId || component.productTitle;
+      const groupKey = identity
+        ? component.type + ":" + identity
+        : component.type + ":detected:" + (++fallbackIndex);
+
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, {
+          id: groupKey,
+          type: component.type,
+          typeLabel,
+          productId: component.productId || "",
+          productTitle: component.productTitle || "",
+          components: [],
+          catchmentNames: new Set(),
+          featureInfoAvailable: false,
+          groupingMode: identity ? "product" : "detected-area"
+        });
+      }
+
+      const group = groups.get(groupKey);
+      group.components.push(component);
+      if (component.catchmentName) group.catchmentNames.add(component.catchmentName);
+      group.featureInfoAvailable ||= component.featureInfoAvailable;
+      if (!group.productId && component.productId) group.productId = component.productId;
+      if (!group.productTitle && component.productTitle) group.productTitle = component.productTitle;
+    });
+
+    return [...groups.values()].map((group, index) => {
+      const extent = padGeographicExtent(unionExtents(group.components.map((component) => component.extent)));
+      const names = [...group.catchmentNames];
+
+      let descriptor = group.productTitle || "";
+      if (!descriptor) descriptor = summariseNames(names);
+      if (!descriptor) descriptor = group.productId || ("Detected area " + (index + 1));
+
+      const title = group.typeLabel + " — " + descriptor;
+      const meta = [
+        group.productId || null,
+        group.components.length + (group.components.length === 1 ? " detected area" : " detected areas"),
+        group.groupingMode === "detected-area" ? "product identifier unavailable" : null
+      ].filter(Boolean).join(" · ");
+
+      return {
+        ...group,
+        extent,
+        title,
+        meta,
+        catchmentNames: names
+      };
+    }).sort((a, b) => {
+      if (a.type !== b.type) return a.type === "warning" ? -1 : 1;
+      return a.title.localeCompare(b.title);
+    });
+  }
+
+  function renderFloodCandidates() {
+    if (!floodCandidateList) return;
+    floodCandidateList.innerHTML = "";
+
+    if (!floodScanned) {
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "Scanning has not been completed for the current session.";
+      floodCandidateList.appendChild(empty);
+      return;
+    }
+
+    if (!floodCandidates.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "No active Flood Warning or Flood Watch areas were detected in Queensland. Generate maps will use the statewide extent.";
+      floodCandidateList.appendChild(empty);
+      return;
+    }
+
+    floodCandidates.forEach((candidate) => {
+      const label = document.createElement("label");
+      label.className = "flood-candidate";
+      if (candidate.id === selectedFloodCandidateId) label.classList.add("selected");
+
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "floodProduct";
+      input.value = candidate.id;
+      input.checked = candidate.id === selectedFloodCandidateId;
+
+      const copy = document.createElement("span");
+      copy.className = "flood-candidate-copy";
+
+      const strong = document.createElement("strong");
+      strong.textContent = candidate.title;
+
+      const meta = document.createElement("small");
+      meta.textContent = candidate.meta;
+
+      copy.append(strong, meta);
+      label.append(input, copy);
+      floodCandidateList.appendChild(label);
+
+      input.addEventListener("change", () => {
+        selectedFloodCandidateId = candidate.id;
+        renderFloodCandidates();
+        if (warningCount) warningCount.textContent = floodCandidates.length.toString();
+        if (modeEl) modeEl.textContent = candidate.typeLabel;
+        setStatus("ok", "Flood product selected", candidate.title + " will control the output extent.", "Selected");
+        updateGenerateState();
+      });
+    });
+  }
+
+  async function loadFloodReferenceCatchments() {
+    const warningPromise = publicSources.bomFloodWarningCatchments
+      ? queryArcgis(
+          publicSources.bomFloodWarningCatchments,
+          QLD_EXTENT,
+          "state_code='QLD'",
+          "aac,aac_parent,dist_name,disp_order,product_id,state_code"
+        )
+      : Promise.resolve({ features: [] });
+
+    const watchPromise = publicSources.bomFloodWatchCatchments
+      ? queryArcgis(
+          publicSources.bomFloodWatchCatchments,
+          QLD_EXTENT,
+          "1=1",
+          "aac,aac_parent,dist_name,disp_order,office"
+        )
+      : Promise.resolve({ features: [] });
+
+    const [warning, watch] = await Promise.allSettled([warningPromise, watchPromise]);
+    return {
+      warningCatchments: warning.status === "fulfilled" ? warning.value : { features: [] },
+      watchCatchments: watch.status === "fulfilled" ? watch.value : { features: [] }
+    };
+  }
+
+  async function scanFloodProducts() {
+    const profile = PROFILES.flooding;
+    if (!profile || !window.MAPPING_ARCGIS?.renderWmsImage) return;
+
+    scanningFloods = true;
+    floodScanned = false;
+    selectedFloodCandidateId = null;
+    updateGenerateState();
+    if (floodSelectionStatus) floodSelectionStatus.textContent = "Scanning";
+    if (floodCandidateList) {
+      floodCandidateList.innerHTML = '<div class="empty-state">Scanning active Flood Warning and Flood Watch areas…</div>';
+    }
+    setStatus("warning", "Scanning flood products…", "Detecting active flood warning/watch areas and grouping warning catchments by product identity.", "Scanning");
+
+    try {
+      const references = await loadFloodReferenceCatchments();
+      const [warnings, watches] = await Promise.all([
+        scanFloodLayer(profile.floodWarningSublayerTitle, "warning", references),
+        scanFloodLayer(profile.floodWatchSublayerTitle, "watch", references)
+      ]);
+
+      floodCandidates = groupFloodComponents([...warnings, ...watches]);
+      floodScanned = true;
+
+      if (floodCandidates.length === 1) {
+        selectedFloodCandidateId = floodCandidates[0].id;
+      }
+
+      if (floodSelectionStatus) floodSelectionStatus.textContent = floodCandidates.length
+        ? floodCandidates.length + " active"
+        : "None active";
+      if (warningCount) warningCount.textContent = floodCandidates.length ? floodCandidates.length.toString() : "0";
+      if (modeEl) modeEl.textContent = floodCandidates.length ? "Select flood product" : "Statewide";
+      renderFloodCandidates();
+
+      const fallbackGroups = floodCandidates.filter((candidate) => candidate.groupingMode === "detected-area");
+      if (floodSelectionNote) {
+        floodSelectionNote.textContent = fallbackGroups.length
+          ? "The selected product controls the output extent. Both Flood Warning and Flood Watch overlays remain visible within it. One or more watch areas did not expose a product identifier, so those are listed as separate detected areas rather than being merged statewide."
+          : "The selected product controls the output extent. Both Flood Warning and Flood Watch overlays remain visible within that selected extent.";
+      }
+
+      if (!floodCandidates.length) {
+        setStatus("ok", "No active flood products detected", "The Flooding tab can generate the same two products using the statewide Queensland extent.", "Statewide");
+      } else if (selectedFloodCandidateId) {
+        setStatus("ok", "Flood product selected", floodCandidates[0].title + " will control the output extent.", "Selected");
+      } else {
+        setStatus("ok", "Active flood products found", "Select the Flood Warning or Flood Watch you are mapping, then generate the two products.", "Select");
+      }
+    } catch (error) {
+      floodCandidates = [];
+      floodScanned = false;
+      selectedFloodCandidateId = null;
+      renderFloodCandidates();
+      if (floodSelectionStatus) floodSelectionStatus.textContent = "Error";
+      setStatus("error", "Flood scan failed", cleanMessage(error), "Error");
+    } finally {
+      scanningFloods = false;
+      updateGenerateState();
+    }
   }
 
   function makeTransform(extent, width, height) {
@@ -757,7 +1335,16 @@
     ctx.fillText(label, x + width + 8, y);
   }
 
-  function drawRadarLegend(ctx, product, active, trackingEnabled=false) {
+  function drawWarningLegendEntry(ctx, x, y, profile) {
+    const label = (profile?.legendLabel || "Warning") + (profile?.key === "thunderstorm" ? "" : " · BoM symbology");
+    if (profile?.key === "thunderstorm") {
+      drawLegendBox(ctx, x, y, "rgba(255,212,59,.28)", "#b45309", label);
+    } else {
+      drawLegendBox(ctx, x, y, "rgba(255,255,255,.8)", "#697177", label);
+    }
+  }
+
+  function drawRadarLegend(ctx, product, active, trackingEnabled=false, profile=currentProfile()) {
     const y = product.legendY;
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, y, product.canvas.width, product.legendHeight);
@@ -771,8 +1358,8 @@
     let x = 16;
     const rowY = y + 21;
     if (active) {
-      drawLegendBox(ctx, x, rowY, "rgba(255,212,59,.28)", "#b45309", "Severe thunderstorm warning");
-      x += 242;
+      drawWarningLegendEntry(ctx, x, rowY, profile);
+      x += profile?.key === "flooding" ? 280 : 250;
     }
     drawLegendLine(ctx, x, rowY, "#3e4549", "Queensland coastline / state border");
     x += 280;
@@ -815,7 +1402,7 @@
     );
   }
 
-  function drawInfrastructureLegend(ctx, product, active, hasPointOutages=false, trackingEnabled=false) {
+  function drawInfrastructureLegend(ctx, product, active, hasPointOutages=false, trackingEnabled=false, profile=currentProfile()) {
     const y = product.legendY;
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, y, product.canvas.width, product.legendHeight);
@@ -831,8 +1418,8 @@
     let x = 16;
 
     if (active) {
-      drawLegendBox(ctx, x, row1, "rgba(255,212,59,.28)", "#b45309", "Severe thunderstorm warning");
-      x += 242;
+      drawWarningLegendEntry(ctx, x, row1, profile);
+      x += profile?.key === "flooding" ? 280 : 250;
     }
     drawLegendLine(ctx, x, row1, "#3e4549", "Queensland coastline / state border");
     x += 280;
@@ -965,13 +1552,14 @@
     mapsEl.appendChild(card);
   }
 
-  async function buildProducts(extent, active, publicData, publicWarnings) {
+  async function buildProducts(extent, active, publicData, publicWarnings, profile=currentProfile(), selection=null) {
     const arcgis = window.MAPPING_ARCGIS;
     const requestedRenderExtent = geographicExtentToWebMercator(extent);
     const [mapWidth, mapHeight] = mapSize(requestedRenderExtent);
 
-    const trackingEnabled = Boolean(cellTrackingToggle?.checked);
-    const optionalTrackingTitles = trackingEnabled ? trackingTitles() : [];
+    const trackingEnabled = Boolean(profile.supportsTracking && cellTrackingToggle?.checked);
+    const optionalTrackingTitles = trackingEnabled ? trackingTitles(profile) : [];
+    const warningTitles = profileTitles(profile, "renderSublayerTitles");
 
     // ArcGIS Topographic is a Web Mercator basemap. Render it first and use
     // the exact extent actually displayed by MapView for every other layer.
@@ -990,7 +1578,10 @@
 
     const commonRenderOptions = { spatialReference: OUTPUT_SR };
     const renderJobs = [
-      arcgis.renderWmsImage("warning", renderExtent, mapWidth, mapHeight, commonRenderOptions),
+      arcgis.renderWmsImage("warning", renderExtent, mapWidth, mapHeight, {
+        ...commonRenderOptions,
+        sublayerTitles: warningTitles
+      }),
       arcgis.renderWmsImage("radar", renderExtent, mapWidth, mapHeight, commonRenderOptions)
     ];
 
@@ -1025,7 +1616,10 @@
       ? "Basemap: ArcGIS Topographic · " + basemapResult.attribution
       : "Basemap: built-in Queensland context · ArcGIS Topographic unavailable for this signed-in account.";
 
-    const scopeText = active ? "Current severe-thunderstorm warning extent" : "Queensland statewide · no active severe-thunderstorm warning detected";
+    const selectedLabel = selection?.title || "";
+    const scopeText = active
+      ? (selectedLabel || ("Current " + profile.activeScopeLabel + " extent"))
+      : ("Queensland statewide · no active " + profile.activeScopeLabel + " detected");
     const generated = new Date();
     const stamp = generated.toLocaleString("en-AU", {
       timeZone: "Australia/Brisbane",
@@ -1036,10 +1630,17 @@
       minute: "2-digit"
     }) + " AEST";
 
+    const activeRadarTitle = profile.key === "flooding"
+      ? "Queensland Flooding + Radar"
+      : "Queensland " + profile.outputTitle + " + Radar";
+    const activeInfraTitle = profile.key === "flooding"
+      ? "Queensland Flooding + Infrastructure Impacts"
+      : "Queensland " + profile.outputTitle + " + Infrastructure Impacts";
+
     const radarProduct = makeProductCanvas(
       mapWidth,
       mapHeight,
-      active ? "Queensland Severe Thunderstorm Warning + Radar" : "Queensland Statewide Radar",
+      active ? activeRadarTitle : "Queensland Statewide Radar",
       scopeText
     );
     const rctx = radarProduct.ctx;
@@ -1047,21 +1648,18 @@
     rctx.translate(radarProduct.mapX, radarProduct.mapY);
     drawContext(rctx, mapWidth, mapHeight, renderExtent, publicData, active, basemapImage);
 
-    // Warning fill/context sits below radar. Keep the radar at its native/full
-    // opacity so light rain-rate returns remain visible. Do not redraw the
-    // full warning WMS over the radar because that can wash out weak echoes.
+    // Warning fill/context sits below radar. Keep the radar at native/full
+    // opacity so weak returns remain visible.
     rctx.drawImage(warningImage, 0, 0, mapWidth, mapHeight);
     rctx.globalAlpha = 1;
     rctx.drawImage(radarImage, 0, 0, mapWidth, mapHeight);
 
-    if (trackingImage) {
-      rctx.drawImage(trackingImage, 0, 0, mapWidth, mapHeight);
-    }
+    if (trackingImage) rctx.drawImage(trackingImage, 0, 0, mapWidth, mapHeight);
     rctx.strokeStyle = "#454b4f";
     rctx.lineWidth = 1;
     rctx.strokeRect(0.5, 0.5, mapWidth - 1, mapHeight - 1);
     rctx.restore();
-    drawRadarLegend(rctx, radarProduct, active, trackingEnabled);
+    drawRadarLegend(rctx, radarProduct, active, trackingEnabled, profile);
     drawFooter(rctx, radarProduct, [
       "Generated " + stamp,
       "Sources: Bureau of Meteorology warning/radar via ArcGIS · Queensland Government boundaries.",
@@ -1071,7 +1669,7 @@
     const infraProduct = makeProductCanvas(
       mapWidth,
       mapHeight,
-      active ? "Queensland Severe Thunderstorm Warning + Infrastructure Impacts" : "Queensland Statewide Infrastructure Impacts",
+      active ? activeInfraTitle : "Queensland Statewide Infrastructure Impacts",
       scopeText
     );
     const ictx = infraProduct.ctx;
@@ -1079,9 +1677,7 @@
     ictx.translate(infraProduct.mapX, infraProduct.mapY);
     const project = drawContext(ictx, mapWidth, mapHeight, renderExtent, publicData, active, basemapImage);
     ictx.drawImage(warningImage, 0, 0, mapWidth, mapHeight);
-    if (trackingImage) {
-      ictx.drawImage(trackingImage, 0, 0, mapWidth, mapHeight);
-    }
+    if (trackingImage) ictx.drawImage(trackingImage, 0, 0, mapWidth, mapHeight);
     drawOutages(ictx, publicData.outagesNorm || [], project, !active);
     drawRoadConditions(ictx, publicData.roadsNorm || [], project);
     ictx.strokeStyle = "#454b4f";
@@ -1092,7 +1688,7 @@
     const hasPointOutages = (publicData.outagesNorm || []).some((outage) =>
       outage.geometry?.type === "Point" || outage.geometry?.type === "MultiPoint"
     );
-    drawInfrastructureLegend(ictx, infraProduct, active, hasPointOutages, trackingEnabled);
+    drawInfrastructureLegend(ictx, infraProduct, active, hasPointOutages, trackingEnabled, profile);
     drawFooter(ictx, infraProduct, [
       "Generated " + stamp,
       "Sources: Bureau of Meteorology warning via ArcGIS · Queensland power outage feed · QLD Traffic · Queensland Government boundaries.",
@@ -1113,42 +1709,79 @@
       return;
     }
 
-    generateButton.disabled = true;
-    generateButton.textContent = "Generating…";
+    const profile = currentProfile();
+    generating = true;
+    updateGenerateState();
     mapsEl.innerHTML = "";
     emptyEl.hidden = false;
-    emptyEl.textContent = "Detecting current warning extent from the authenticated warning WMS…";
-    setStatus("warning", "Generating current maps…", "Checking the warning WMS, loading public Queensland context and rendering the two products.", "Generating");
 
     try {
-      const warning = await detectWarningExtent();
+      let warning;
+      let selection = null;
+
+      if (profile.key === "flooding") {
+        if (!floodScanned) {
+          await scanFloodProducts();
+        }
+
+        if (floodCandidates.length) {
+          selection = floodCandidates.find((candidate) => candidate.id === selectedFloodCandidateId) || null;
+          if (!selection) {
+            setStatus("warning", "Select a flood product", "Choose the Flood Warning or Flood Watch you are mapping before generating.", "Select");
+            return;
+          }
+          warning = { active: true, extent: selection.extent };
+          emptyEl.textContent = "Loading public Queensland context for " + selection.title + "…";
+        } else {
+          warning = { active: false, extent: [...QLD_EXTENT] };
+          emptyEl.textContent = "No active flood product detected; loading statewide Queensland context…";
+        }
+      } else {
+        emptyEl.textContent = "Detecting current " + profile.activeScopeLabel + " extent from the authenticated warning WMS…";
+        setStatus("warning", "Generating current maps…", "Checking the selected warning layer, loading public Queensland context and rendering the two products.", "Generating");
+        warning = await detectWarningExtent(profile);
+      }
+
       const extent = warning.extent;
       const statewide = !warning.active;
 
-      if (warningCount) warningCount.textContent = warning.active ? "Active" : "0";
-      if (modeEl) modeEl.textContent = statewide ? "Statewide" : "Warning extent";
+      if (warningCount && profile.key !== "flooding") warningCount.textContent = warning.active ? "Active" : "0";
+      if (modeEl) modeEl.textContent = statewide ? "Statewide" : (selection?.typeLabel || "Warning extent");
 
       emptyEl.textContent = "Loading public Queensland context, outage and road-condition data…";
       const { data, warnings } = await loadPublicData(extent, statewide);
 
       emptyEl.textContent = "Rendering authenticated weather imagery and composing JPEG products…";
-      const products = await buildProducts(extent, warning.active, data, warnings);
+      const products = await buildProducts(extent, warning.active, data, warnings, profile, selection);
 
       revokeOutputs();
       mapsEl.innerHTML = "";
 
+      const prefix = profile.filenamePrefix || "warning";
+      const radarCardTitle = warning.active
+        ? (profile.key === "flooding" ? "Flooding + Radar" : "Warning + Radar")
+        : "Statewide Radar";
+      const infraCardTitle = warning.active
+        ? (profile.key === "flooding" ? "Flooding + Infrastructure Impacts" : "Warning + Infrastructure Impacts")
+        : "Statewide Infrastructure Impacts";
+      const selectionMeta = selection ? " · " + selection.title : "";
+
       addMapCard(
         products.radarBlob,
-        warning.active ? "Warning + Radar" : "Statewide Radar",
-        warning.active ? "warning-radar-combined" : "warning-radar-statewide",
-        (warning.active ? "radar · combined warning extent" : "radar · statewide") + (products.trackingEnabled ? " · cell tracking" : ""),
+        radarCardTitle,
+        warning.active ? prefix + "-radar-combined" : prefix + "-radar-statewide",
+        (warning.active ? "radar · selected warning extent" : "radar · statewide") +
+          selectionMeta +
+          (products.trackingEnabled ? " · cell tracking" : ""),
         products.generated
       );
       addMapCard(
         products.infraBlob,
-        warning.active ? "Warning + Infrastructure Impacts" : "Statewide Infrastructure Impacts",
-        warning.active ? "warning-infrastructure-combined" : "warning-infrastructure-statewide",
-        (warning.active ? "infrastructure · combined warning extent" : "infrastructure · statewide") + (products.trackingEnabled ? " · cell tracking" : ""),
+        infraCardTitle,
+        warning.active ? prefix + "-infrastructure-combined" : prefix + "-infrastructure-statewide",
+        (warning.active ? "infrastructure · selected warning extent" : "infrastructure · statewide") +
+          selectionMeta +
+          (products.trackingEnabled ? " · cell tracking" : ""),
         products.generated
       );
 
@@ -1161,12 +1794,15 @@
         }) + " AEST";
       }
 
+      const activeMessage = selection
+        ? "The two products use the selected flood product extent: " + selection.title + "."
+        : "The two products use the combined detected extent of the current authenticated " + profile.activeScopeLabel + ".";
+      const statewideMessage = "No active " + profile.activeScopeLabel + " pixels were detected within Queensland, so the two products use the statewide extent.";
+
       setStatus(
         warnings.length ? "warning" : "ok",
-        warning.active ? "Current warning maps generated" : "Statewide maps generated",
-        warning.active
-          ? "The two products use the combined detected extent of the current authenticated severe-thunderstorm warning WMS."
-          : "No active severe-thunderstorm warning pixels were detected within Queensland, so the two products use the statewide extent.",
+        warning.active ? "Current maps generated" : "Statewide maps generated",
+        warning.active ? activeMessage : statewideMessage,
         warnings.length ? "Partial" : "Current"
       );
     } catch (error) {
@@ -1175,8 +1811,8 @@
       emptyEl.textContent = cleanMessage(error);
       setStatus("error", "Map generation failed", cleanMessage(error), "Error");
     } finally {
-      generateButton.disabled = false;
-      generateButton.textContent = "Generate maps";
+      generating = false;
+      updateGenerateState();
     }
   }
 
@@ -1187,5 +1823,29 @@
     });
   }
 
+  profileButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = button.dataset.warningProfile;
+      if (!key || !PROFILES[key]) return;
+      setActiveProfile(key, { persist: true, scanFloods: true });
+    });
+  });
+
+  refreshFloodProductsButton?.addEventListener("click", () => {
+    scanFloodProducts().catch(() => {});
+  });
+
+  window.addEventListener("mapping:arcgis-sources", (event) => {
+    feedsReady = Boolean(event.detail?.ready);
+    updateProfileControls();
+    if (feedsReady && currentProfile().key === "flooding" && !floodScanned && !scanningFloods) {
+      scanFloodProducts().catch(() => {});
+    }
+  });
+
   generateButton?.addEventListener("click", generateMaps);
+
+  updateProfileControls();
+  if (modeEl) modeEl.textContent = currentProfile().label;
+  updateWarningSourceDetail();
 })();
