@@ -50,6 +50,7 @@
   let floodCandidates = [];
   let selectedFloodCandidateId = null;
   let cameraAnalysisRun = 0;
+  let queenslandBoundaryPromise = null;
   const adminBoundaryState = {
     localGovernment: { status: "resolving", layer: null, error: "" },
     disasterDistricts: { status: "resolving", layer: null, error: "" }
@@ -750,6 +751,132 @@
     };
   }
 
+
+  function validateQueenslandBoundary(collection) {
+    const features = (collection?.features || []).filter((feature) =>
+      feature.geometry?.type === "Polygon" || feature.geometry?.type === "MultiPolygon"
+    );
+    if (collection?.type !== "FeatureCollection" || features.length < 50) {
+      throw new Error("The Queensland local-government boundary request returned incomplete polygon data.");
+    }
+
+    const insideQueensland = [
+      [153.028, -27.47], // Brisbane
+      [145.77, -16.92],  // Cairns
+      [139.49, -20.72]   // Mount Isa
+    ];
+    if (insideQueensland.some((point) =>
+      !features.some((feature) => pointInGeometry(point, feature.geometry))
+    )) {
+      throw new Error("The Queensland boundary dataset failed geographic coverage checks.");
+    }
+
+    // Make sure a southern NSW point cannot be treated as Queensland.
+    if (features.some((feature) => pointInGeometry([153.61, -28.65], feature.geometry))) {
+      throw new Error("The Queensland boundary dataset unexpectedly includes interstate territory.");
+    }
+
+    return { type: "FeatureCollection", features, _source: "public" };
+  }
+
+  function loadQueenslandBoundary() {
+    if (!queenslandBoundaryPromise) {
+      queenslandBoundaryPromise = queryArcgis(publicSources.lga, QLD_EXTENT, "1=1", "lga")
+        .then(validateQueenslandBoundary)
+        .catch((error) => {
+          queenslandBoundaryPromise = null;
+          throw error;
+        });
+    }
+    return queenslandBoundaryPromise;
+  }
+
+  function makeQueenslandMaskCanvas(boundary, width, height, project) {
+    if (!Array.isArray(boundary?.features) || !boundary.features.length) {
+      throw new Error("Queensland boundary polygons are required to clip the warning.");
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = "#ffffff";
+    // Fill polygons separately, preserving polygon holes while forming the
+    // union of neighbouring LGAs (one global even-odd fill would cancel overlaps).
+    for (const feature of boundary.features) {
+      if (!["Polygon", "MultiPolygon"].includes(feature.geometry?.type)) continue;
+      ctx.beginPath();
+      pathGeometry(ctx, feature.geometry, project);
+      ctx.fill("evenodd");
+    }
+    return canvas;
+  }
+
+  function clipDetectionToQueensland(detection, boundary) {
+    const mask = detection?.mask;
+    if (!mask?.visible) throw new Error("The warning detection did not return a raster mask.");
+
+    const [xmin, ymin, xmax, ymax] = mask.extent || QLD_EXTENT;
+    const project = ([lon, lat]) => [
+      ((lon - xmin) / (xmax - xmin)) * mask.width,
+      ((ymax - lat) / (ymax - ymin)) * mask.height
+    ];
+    const boundaryCanvas = makeQueenslandMaskCanvas(boundary, mask.width, mask.height, project);
+    const boundaryPixels = boundaryCanvas.getContext("2d").getImageData(
+      0, 0, mask.width, mask.height
+    ).data;
+
+    const clipped = new Uint8Array(mask.visible.length);
+    let minX = mask.width, minY = mask.height, maxX = -1, maxY = -1, hits = 0;
+
+    for (let gy = 0; gy < mask.gridHeight; gy += 1) {
+      const y = Math.min(mask.height - 1, gy * mask.step);
+      for (let gx = 0; gx < mask.gridWidth; gx += 1) {
+        const index = gy * mask.gridWidth + gx;
+        if (!mask.visible[index]) continue;
+        const x = Math.min(mask.width - 1, gx * mask.step);
+        if (boundaryPixels[(y * mask.width + x) * 4 + 3] < 12) continue;
+        clipped[index] = 1;
+        hits += 1;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+
+    // Keep the original detector's minimum signal threshold. Warnings outside
+    // Queensland no longer trigger a warning-area extent or camera/LGA results.
+    const active = hits >= 35 && maxX >= minX && maxY >= minY;
+    const extent = active ? padGeographicExtent([
+      pixelToGeographic(minX, maxY + mask.step, mask.width, mask.height, mask.extent)[0],
+      pixelToGeographic(minX, maxY + mask.step, mask.width, mask.height, mask.extent)[1],
+      pixelToGeographic(maxX + mask.step, minY, mask.width, mask.height, mask.extent)[0],
+      pixelToGeographic(maxX + mask.step, minY, mask.width, mask.height, mask.extent)[1]
+    ]) : [...QLD_EXTENT];
+
+    return {
+      ...detection,
+      active,
+      extent,
+      components: [],
+      mask: { ...mask, visible: clipped },
+      queenslandBoundary: boundary
+    };
+  }
+
+  function clipWmsImageToQueensland(image, maskCanvas, width, height) {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(image, 0, 0, width, height);
+    ctx.globalCompositeOperation = "destination-in";
+    ctx.drawImage(maskCanvas, 0, 0, width, height);
+    ctx.globalCompositeOperation = "source-over";
+    return canvas;
+  }
+
   async function renderDetectionLayer(sublayerTitles, { components=false }={}) {
     const arcgis = window.MAPPING_ARCGIS;
     if (!arcgis?.renderWmsImage) throw new Error("Authenticated ArcGIS rendering is not ready.");
@@ -768,7 +895,11 @@
 
   async function detectWarningExtent(profile=currentProfile()) {
     const titles = profileTitles(profile, "detectionSublayerTitles");
-    return renderDetectionLayer(titles, { components: false });
+    const [detection, boundary] = await Promise.all([
+      renderDetectionLayer(titles, { components: false }),
+      loadQueenslandBoundary()
+    ]);
+    return clipDetectionToQueensland(detection, boundary);
   }
 
   function lonLatToWebMercator(coord) {
@@ -1008,12 +1139,23 @@
     }
   }
 
-  async function loadPublicData(extent, statewide, { includeDisasterDistricts=false }={}) {
+  async function loadPublicData(extent, statewide, {
+    includeDisasterDistricts=false,
+    queenslandBoundary=null
+  }={}) {
+    const lgaInExtent = queenslandBoundary
+      ? {
+          ...queenslandBoundary,
+          features: queenslandBoundary.features.filter((feature) =>
+            extentIntersectsGeometry(feature.geometry, extent)
+          )
+        }
+      : null;
     const jobs = {
       mainland: queryArcgis(publicSources.mainland, extent, "1=1", "feature_type,name"),
       coastline: queryArcgis(publicSources.coastline, extent, "1=1", "feature_type"),
       border: queryArcgis(publicSources.stateBorder, extent, "1=1", "border_desc,state_desc"),
-      lga: loadPreferredLga(extent),
+      lga: lgaInExtent ? Promise.resolve(lgaInExtent) : loadPreferredLga(extent),
       disasterDistricts: includeDisasterDistricts
         ? loadDisasterDistricts(extent)
         : Promise.resolve({ type: "FeatureCollection", features: [], _source: "not-requested" }),
@@ -2011,7 +2153,10 @@
     mapsEl.appendChild(card);
   }
 
-  async function buildProducts(extent, active, publicData, publicWarnings, profile=currentProfile(), selection=null) {
+  async function buildProducts(
+    extent, active, publicData, publicWarnings,
+    profile=currentProfile(), selection=null, queenslandBoundary=null
+  ) {
     const arcgis = window.MAPPING_ARCGIS;
     const requestedRenderExtent = geographicExtentToWebMercator(extent);
     const [mapWidth, mapHeight] = mapSize(requestedRenderExtent);
@@ -2071,6 +2216,19 @@
     const radarImage = decoded[1];
     const trackingImage = trackingResult ? decoded[2] : null;
     const basemapImage = basemapResult?.blob ? decoded[basemapIndex] : null;
+
+    // Flooding retains its existing behaviour. Severe thunderstorm and severe
+    // weather layers are clipped to the union of Queensland LGA polygons,
+    // including the optional storm-cell/direction overlay. Radar is not clipped.
+    const qldMask = profile.key === "flooding" ? null : makeQueenslandMaskCanvas(
+      queenslandBoundary, mapWidth, mapHeight, makeTransform(renderExtent, mapWidth, mapHeight)
+    );
+    const warningOverlay = qldMask
+      ? clipWmsImageToQueensland(warningImage, qldMask, mapWidth, mapHeight)
+      : warningImage;
+    const trackingOverlay = trackingImage && qldMask
+      ? clipWmsImageToQueensland(trackingImage, qldMask, mapWidth, mapHeight)
+      : trackingImage;
     const basemapAttribution = basemapResult?.attribution
       ? "Basemap: ArcGIS Topographic · " + basemapResult.attribution
       : "Basemap: built-in Queensland context · ArcGIS Topographic unavailable for this signed-in account.";
@@ -2109,11 +2267,11 @@
 
     // Warning fill/context sits below radar. Keep the radar at native/full
     // opacity so weak returns remain visible.
-    rctx.drawImage(warningImage, 0, 0, mapWidth, mapHeight);
+    rctx.drawImage(warningOverlay, 0, 0, mapWidth, mapHeight);
     rctx.globalAlpha = 1;
     rctx.drawImage(radarImage, 0, 0, mapWidth, mapHeight);
 
-    if (trackingImage) rctx.drawImage(trackingImage, 0, 0, mapWidth, mapHeight);
+    if (trackingOverlay) rctx.drawImage(trackingOverlay, 0, 0, mapWidth, mapHeight);
     rctx.strokeStyle = "#454b4f";
     rctx.lineWidth = 1;
     rctx.strokeRect(0.5, 0.5, mapWidth - 1, mapHeight - 1);
@@ -2135,8 +2293,8 @@
     ictx.save();
     ictx.translate(infraProduct.mapX, infraProduct.mapY);
     const project = drawContext(ictx, mapWidth, mapHeight, renderExtent, publicData, active, basemapImage);
-    ictx.drawImage(warningImage, 0, 0, mapWidth, mapHeight);
-    if (trackingImage) ictx.drawImage(trackingImage, 0, 0, mapWidth, mapHeight);
+    ictx.drawImage(warningOverlay, 0, 0, mapWidth, mapHeight);
+    if (trackingOverlay) ictx.drawImage(trackingOverlay, 0, 0, mapWidth, mapHeight);
     drawOutages(ictx, publicData.outagesNorm || [], project, !active);
     drawRoadConditions(ictx, publicData.roadsNorm || [], project);
     ictx.strokeStyle = "#454b4f";
@@ -2214,7 +2372,8 @@
 
       emptyEl.textContent = "Loading public Queensland context, outage and road-condition data…";
       const { data, warnings } = await loadPublicData(extent, statewide, {
-        includeDisasterDistricts: profile.key !== "flooding"
+        includeDisasterDistricts: profile.key !== "flooding",
+        queenslandBoundary: warning.queenslandBoundary || null
       });
 
       if (profile.key !== "flooding") {
@@ -2222,7 +2381,9 @@
       }
 
       emptyEl.textContent = "Rendering authenticated weather imagery and composing JPEG products…";
-      const products = await buildProducts(extent, warning.active, data, warnings, profile, selection);
+      const products = await buildProducts(
+        extent, warning.active, data, warnings, profile, selection, warning.queenslandBoundary || null
+      );
 
       revokeOutputs();
       mapsEl.innerHTML = "";

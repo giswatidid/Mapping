@@ -30,7 +30,7 @@ Every tab produces exactly two final JPEG products:
 1. **Warning/Watch + Radar**
 2. **Warning/Watch + Infrastructure Impacts**
 
-For Severe Thunderstorm and Severe Weather, multiple active polygons are combined into the detected warning extent. If no active product is detected, the same two products use a statewide Queensland extent.
+For Severe Thunderstorm and Severe Weather, multiple active polygons are combined into the detected warning extent **only where warning pixels overlap Queensland**. The browser loads the existing public Queensland Government Local government polygons alongside warning detection, builds a Queensland land-area mask (including LGA islands), and excludes NSW/NT/SA warning pixels before deciding whether there is an active Queensland warning. If none remain, the same two products use the statewide Queensland extent. Both JPEGs clip the severe-weather/thunderstorm warning overlay to those Queensland polygons; optional storm tracking is clipped too. Radar and base-map context are unchanged. If the Queensland boundary cannot be loaded and validated, generation reports an error rather than misclassifying interstate warnings.
 
 For Flooding, the user selects one active Flood Warning or Flood Watch. The selected product controls the output extent; both flood-warning and flood-watch overlays remain visible inside that extent. If no active flood product is detected, statewide output remains available.
 
@@ -91,7 +91,7 @@ For **Severe Thunderstorm** and **Severe Weather**, the browser analyses the act
 - Local government areas intersected by the warning pixels
 - Queensland disaster districts intersected by the warning pixels
 
-The boundary sources are deterministic:
+The boundary sources are deterministic. The same public Local government polygons are also loaded in parallel with Severe Thunderstorm/Severe Weather detection and reused for the JPEG context, avoiding a duplicate statewide LGA request:
 
 - **Local government** uses the Queensland Government `Boundaries/AdministrativeBoundaries/MapServer/1` polygon layer directly. Its display/name field is `lga`.
 - **Disaster districts** are resolved after ArcGIS sign-in by the exact accessible service item title `District_Disaster_Management_Groups_DDMG_Boundary_Status_Url`. The app does not depend on the portal UI's item-type label; it verifies the service itself, then requires layer `0`, named `DDMG_websites`, polygon geometry, query support, and display/name field `PROP_DD`.
