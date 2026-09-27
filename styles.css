@@ -895,6 +895,30 @@ main { display: grid; gap: 10px; }
 }
 
 
+/* On-demand production PDF: independent of the ordinary camera links and JPEGs. */
+.camera-report-controls {
+  display: grid;
+  gap: 8px;
+  padding: 13px 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line, #cbd4da);
+  border-radius: 9px;
+  background: var(--panel, rgba(127,127,127,.045));
+}
+.camera-report-actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+.camera-report-actions button { cursor:pointer; }
+.camera-report-actions button:disabled { opacity:.5; cursor:not-allowed; }
+.camera-report-actions button[hidden] { display:none !important; }
+.camera-report-label { color:var(--muted); font-size:.8rem; }
+.camera-report-controls .camera-note { margin:0; }
+.camera-report-progress { width:100%; min-height:10px; accent-color:#a6252a; }
+.camera-report-progress[hidden] { display:none !important; }
+@media (max-width:620px) {
+  .camera-report-actions { align-items:stretch; }
+  .camera-report-actions button { width:100%; }
+  .camera-report-label { width:100%; }
+}
+
 /* Opt-in camera PDF proof of concept; hidden during normal map operations. */
 .camera-pdf-lab[hidden] { display:none !important; }
 .camera-pdf-lab-controls { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }

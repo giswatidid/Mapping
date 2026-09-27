@@ -351,6 +351,8 @@
   }
 
   function resetCameraPanel(message="Generate a Severe Thunderstorm or Severe Weather map to find cameras inside the warning area.") {
+    // A new warning/tab invalidates any PDF run using the prior mask or cameras.
+    window.MAPPING_CAMERA_REPORT?.invalidate();
     if (cameraStatus) cameraStatus.textContent = "Generate to analyse";
     if (!cameraList) return;
     cameraList.innerHTML = "";
@@ -411,7 +413,11 @@
       direction,
       district,
       postcode,
-      imageUrl
+      imageUrl,
+      // Only explicitly named photograph-capture metadata is eligible for
+      // freshness checks; feed record-update dates are not capture times.
+      verifiedImageTimestamp: window.MAPPING_CAMERA_PDF_CORE
+        ?.explicitCaptureTimestamp(props) ?? null
     };
   }
 
@@ -455,6 +461,8 @@
       coordinates:feature.geometry.coordinates,
       subtitle,links,kind,objectId,
       hasAttachments:Boolean(source.hasAttachments),
+      verifiedImageTimestamp: window.MAPPING_CAMERA_PDF_CORE
+        ?.explicitCaptureTimestamp(props) ?? null,
       portalItemId:source.itemId
     };
   }
@@ -591,6 +599,7 @@
       if (cameraStatus) cameraStatus.textContent="No active warning";
       return;
     }
+    window.MAPPING_CAMERA_REPORT?.invalidate();
     const state=Object.fromEntries(CAMERA_SOURCES.map((source)=>[
       source.key,{status:"checking",cameras:[],error:""}
     ]));
@@ -645,6 +654,17 @@
       }
       renderAllCameraSources(state,runId);
     }));
+    // Publish one immutable-in-practice snapshot only when all three
+    // independent source attempts have finished for the SAME warning mask.
+    // PDF work starts only on its own button, never during JPEG rendering.
+    if (runId===cameraAnalysisRun && currentProfile().key===profile.key) {
+      window.MAPPING_CAMERA_REPORT?.setContext({
+        warning: { active:true, extent:[...warning.extent], mask:warning.mask },
+        profile: { key:profile.key, label:profile.label,
+          outputTitle:profile.outputTitle },
+        sources:state
+      });
+    }
   }
 
   function promiseTimeout(promise, ms, message) {
@@ -2465,6 +2485,7 @@
 
     const profile = currentProfile();
     cameraAnalysisRun += 1;
+    window.MAPPING_CAMERA_REPORT?.invalidate();
     if (profile.key !== "flooding") resetCameraPanel("Generating warning mask…");
     generating = true;
     updateGenerateState();
@@ -2617,6 +2638,7 @@
 
   window.addEventListener("mapping:arcgis-sources", (event) => {
     feedsReady = Boolean(event.detail?.ready);
+    if (!feedsReady) window.MAPPING_CAMERA_REPORT?.invalidate();
     updateProfileControls();
     if (feedsReady && currentProfile().key === "flooding" && !floodScanned && !scanningFloods) {
       scanFloodProducts().catch(() => {});

@@ -119,63 +119,8 @@
   // The public traffic layer provides camera locations but some image URLs
   // are obsolete. Web Cameras - LIVE also contains traffic camera images.
   // Correlate features by BOTH distance and meaningful name overlap.
-  const cameraNameTokens=(value)=>new Set(String(value||"")
-    .toLowerCase().replace(/&/g," and ")
-    .replace(/[^a-z0-9]+/g," ").split(" ")
-    .filter(token=>token.length>=3&&![
-      "camera","traffic","flood","road","street","the",
-      "and","near","view","north","south","east","west","highway"
-    ].includes(token)));
-
-  function cameraDistanceMeters(a,b){
-    const rad=Math.PI/180,lat1=Number(a[1])*rad,lat2=Number(b[1])*rad;
-    const dLat=(Number(b[1])-Number(a[1]))*rad;
-    const dLon=(Number(b[0])-Number(a[0]))*rad;
-    const v=Math.sin(dLat/2)**2+
-      Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
-    return 12742000*Math.atan2(Math.sqrt(v),Math.sqrt(Math.max(0,1-v)));
-  }
-
-  function hostedImageUrls(properties){
-    return Object.entries(properties||{})
-      .filter(([field])=>/^image_?url[0-9]*$/i.test(field))
-      .sort(([a],[b])=>Number(a.match(/[0-9]+$/)?.[0]||0)-
-        Number(b.match(/[0-9]+$/)?.[0]||0))
-      .map(([,value])=>directUrl(value))
-      .filter((url,index,list)=>url&&list.indexOf(url)===index);
-  }
-
-  function matchLiveTrafficCameras(publicCameras,liveFeatures){
-    const live=(liveFeatures||[]).filter(isPoint).map(feature=>({
-      coord:feature.geometry.coordinates,
-      name:String(feature.properties?.Location_Name||
-        feature.properties?.location_name||""),
-      urls:hostedImageUrls(feature.properties)
-    })).filter(feature=>feature.urls.length);
-    const used=new Set(),result=[];
-    for(const camera of publicCameras){
-      const words=cameraNameTokens(camera.name);
-      const matches=live.map((feature,index)=>{
-        if(used.has(index))return null;
-        const metres=cameraDistanceMeters(camera.coord,feature.coord);
-        if(!Number.isFinite(metres)||metres>500)return null;
-        const shared=[...cameraNameTokens(feature.name)]
-          .filter(word=>words.has(word)).length;
-        const confident=(metres<=15&&shared>=1)||
-          (metres<=150&&shared>=2)||(metres<=500&&shared>=3);
-        return confident?{feature,index,metres,shared,
-          score:shared*100-Math.min(metres,500)}:null;
-      }).filter(Boolean).sort((a,b)=>b.score-a.score);
-      const best=matches[0];
-      if(best&&(!matches[1]||best.score-matches[1].score>=15)){
-        used.add(best.index);
-        result.push({...camera,urls:best.feature.urls,
-          liveMatched:true,
-          matchMetres:Math.round(best.metres)});
-      }else result.push({...camera,liveMatched:false});
-    }
-    return result;
-  }
+  // Share the lab-tested matching algorithm with the production action.
+  const matchLiveTrafficCameras = window.MAPPING_CAMERA_PDF_CORE.matchLiveTrafficCameras;
 
   async function candidatesFor(source) {
     const sdk=window.MAPPING_ARCGIS;
@@ -443,21 +388,8 @@
     updateBusy(false);
   }
 
-  async function jpegFromBlob(blob) {
-    const image=await createImageBitmap(blob);
-    try {
-      const maxWidth=1080,maxHeight=600;
-      const scale=Math.min(maxWidth/image.width,maxHeight/image.height,1);
-      const w=Math.max(1,Math.round(image.width*scale));
-      const h=Math.max(1,Math.round(image.height*scale));
-      const canvas=document.createElement("canvas");
-      canvas.width=w;canvas.height=h;
-      const ctx=canvas.getContext("2d");
-      ctx.fillStyle="#fff";ctx.fillRect(0,0,w,h);
-      ctx.drawImage(image,0,0,w,h);
-      return {data:canvas.toDataURL("image/jpeg",0.78),width:w,height:h};
-    } finally {image.close();}
-  }
+  // The production report and lab use the same image-decoding/transcode path.
+  const jpegFromBlob = window.MAPPING_CAMERA_PDF_CORE.jpegFromBlob;
 
   function geographicBounds(items) {
     const valid=items.filter(c=>Array.isArray(c.coord)&&c.coord.every(Number.isFinite));
@@ -500,107 +432,11 @@
     }catch{return {image:null,extent};}
   }
 
-  let loadingPdf=null;
-  function checkPdfLibrary(Ctor) {
-    if(typeof Ctor!=="function")throw new Error("The PDF constructor was not exported.");
-    // Check actual PDF generation, not just whether a script file loaded.
-    const test=new Ctor({orientation:"landscape",unit:"mm",format:"a4"});
-    test.text("Camera PDF library check",12,14);
-    const bytes=test.output();
-    if(typeof bytes!=="string"||!bytes.startsWith("%PDF")) {
-      throw new Error("The PDF library failed its document self-check.");
-    }
-    return Ctor;
-  }
+  // Both reports load the same pinned, AMD-safe jsPDF and run its self-check.
+  const ensurePdf = window.MAPPING_CAMERA_PDF_CORE.ensurePdf;
 
-  async function ensurePdf() {
-    if(typeof window.jspdf?.jsPDF==="function") {
-      return checkPdfLibrary(window.jspdf.jsPDF);
-    }
-    if(!loadingPdf)loadingPdf=new Promise((resolve,reject)=>{
-      const script=document.createElement("script");
-      // Explicit browser-global jsPDF export. The normal upstream UMD entry
-      // can register with another AMD loader and leave window.jspdf missing.
-      script.src="vendor/jspdf.umd.min.js?v=20260927-browser2";
-      script.async=true;
-      let executionError="";
-      const catchExecutionError=(event)=>{
-        if(String(event.filename||"").includes("jspdf.umd.min.js")) {
-          executionError=String(event.message||"Unknown JavaScript error").slice(0,160);
-        }
-      };
-      window.addEventListener("error",catchExecutionError);
-      const cleanup=()=>window.removeEventListener("error",catchExecutionError);
-      script.onload=()=>{
-        cleanup();
-        try {
-          if(typeof window.jspdf?.jsPDF!=="function") {
-            throw new Error("PDF script loaded without a browser export"+
-              (executionError?": "+executionError:""));
-          }
-          resolve(checkPdfLibrary(window.jspdf.jsPDF));
-        } catch(error) {reject(error);}
-      };
-      script.onerror=()=>{
-        cleanup();
-        reject(new Error(
-          "Bundled PDF script failed to load. Camera image retrieval still works."
-        ));
-      };
-      document.head.appendChild(script);
-    });
-    return loadingPdf.catch((error)=>{
-      loadingPdf=null;
-      throw error;
-    });
-  }
-
-  function layoutCameraMarkers(cameras,extent,frame) {
-    const margin=6,minGap=10.5;
-    const placed=[];
-    const available=cameras.map((camera,index)=>({camera,index}))
-      .filter(({camera})=>!camera.repeated &&
-        Array.isArray(camera.coord) && camera.coord.length>=2);
-    for(const entry of available) {
-      const [rawX,rawY]=positionOnMap(entry.camera.coord,extent,
-        frame.x,frame.y,frame.w,frame.h);
-      if(!Number.isFinite(rawX)||!Number.isFinite(rawY)||
-         rawX<frame.x||rawX>frame.x+frame.w||
-         rawY<frame.y||rawY>frame.y+frame.h)continue;
-      let chosen=null;
-      const valid=(px,py)=>px>=frame.x+margin&&px<=frame.x+frame.w-margin&&
-        py>=frame.y+margin&&py<=frame.y+frame.h-margin&&
-        placed.every(({x,y})=>Math.hypot(px-x,py-y)>=minGap);
-
-      // Rings are tested around the real coordinate, not around a displaced
-      // neighbour. A leader joins each offset pin to its real map position.
-      for(let ring=0;ring<=14&&!chosen;ring++){
-        const positions=ring===0?1:8*ring;
-        for(let slot=0;slot<positions;slot++){
-          const angle=2*Math.PI*slot/positions+ring*0.19;
-          const radius=ring*12;
-          const px=rawX+Math.cos(angle)*radius;
-          const py=rawY+Math.sin(angle)*radius;
-          if(valid(px,py)){chosen={x:px,y:py};break;}
-        }
-      }
-      if(!chosen){
-        // At extreme cluster density, search all free map grid cells.
-        // This keeps every unique numbered camera accessible in the PDF.
-        const candidates=[];
-        for(let py=frame.y+margin;py<=frame.y+frame.h-margin;py+=minGap){
-          for(let px=frame.x+margin;px<=frame.x+frame.w-margin;px+=minGap){
-            if(valid(px,py))candidates.push({x:px,y:py,
-              distance:Math.hypot(px-rawX,py-rawY)});
-          }
-        }
-        candidates.sort((a,b)=>a.distance-b.distance);
-        chosen=candidates[0]||null;
-      }
-      if(chosen)placed.push({...entry,rawX,rawY,...chosen});
-    }
-    return placed;
-  }
+  // Reuse the lab's proven ring/grid marker deconfliction and leader lines.
+  const layoutCameraMarkers = window.MAPPING_CAMERA_PDF_CORE.layoutCameraMarkers;
 
   function drawMiniMap(doc,cameras,extent,basemap) {
     const x=12,y=33,w=220,h=151;

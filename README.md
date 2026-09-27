@@ -191,10 +191,71 @@ It loads on demand only after pressing
 Generate sample PDF, without requiring a corporate browser to reach a
 third-party PDF CDN. Test mode is remembered for one hour in the same tab
 so that the ArcGIS organisation's OAuth redirect can complete without losing
-it; use **Exit test mode** to clear that flag. The prototype intentionally
-does not introduce a live
-`Generate Camera PDF` button into the ordinary warning-area camera panel
-until image access is verified with the signed-in ArcGIS account.
+it; use **Exit test mode** to clear that flag. The diagnostic lab remains separate from the permanent report and continues
+to test six slots, as well as intentional 18- and 36-slot layout repeats.
+The lab and production report now share strict public/live TMR matching,
+JPEG conversion, marker deconfliction and the bundled AMD-safe jsPDF loader.
+
+## Production Camera Situation Report (Severe Thunderstorm / Severe Weather)
+
+After **Generate maps** and the independent camera-source queries finish,
+**Generate Camera PDF** becomes available inside **Cameras in warning area**.
+It acts on the last completed Queensland-clipped warning mask and matched
+camera results; it neither reruns warning detection nor starts downloading
+images or generating PDFs during the normal two-JPEG workflow. Changing tabs,
+regenerating maps or losing the ArcGIS feed invalidates the old report
+context. Flooding retains its original behaviour and has no camera PDF.
+
+The user-initiated action correlates the already-fetched public traffic
+camera locations with the already-fetched authenticated Web Cameras - LIVE
+layer. Matches require meaningful name overlap and geographic proximity;
+ambiguous matches are discarded. Unmatched traffic cameras retain their
+original source image URLs. Authenticated BCC attachments are retrieved on
+demand through the existing session; requests remain entirely in the browser.
+Image downloads run at controlled concurrency (three at a time), with
+per-image timeouts, progress counts, partial-failure handling and a Cancel
+button. Unavailable/CORS-blocked images are simply excluded. Public source
+queries and links in the ordinary camera panel are unchanged.
+
+**Eligibility is determined after actual image bytes are successfully
+decoded and transcoded to JPEG.** A documented, explicitly named image
+capture timestamp is checked only if it parses unambiguously (UTC/offset ISO
+8601 or Unix seconds/milliseconds): photographs more than 60 minutes old
+at report assembly are excluded. If no such verified capture timestamp is
+available, the photograph is eligible but is labelled **Image time unknown**;
+its actual **retrieval time** is displayed separately. Ordinary record-edit,
+service-update, HTTP Last-Modified, BCC `image_last_updated` and attachment
+edit timestamps are deliberately **not** treated as photograph capture time.
+A malformed or timezone-free capture date is also treated as unknown.
+Images cannot be deemed current merely because they were downloaded now.
+When no eligible photos remain, the UI explains the result and creates
+**no empty PDF**.
+
+The self-contained, browser-generated **landscape A4** report includes:
+- Page 1: warning type, AEST report-generation timestamp, ArcGIS topographic
+  basemap where available, the **stored Queensland warning detection mask**
+  shaded onto that basemap, numbered eligible-camera pins with leader lines,
+  clickable snapshot-page links, and a clickable camera index. A geographic
+  reference grid is shown if the basemap is unavailable. The warning shading
+  represents the detected clipped raster pixels, **not** a newly requested
+  live WMS or an authoritative vector boundary.
+- Subsequent pages: precisely the available eligible photos (up to six per
+  page), in three columns by two rows with no excluded-camera placeholders,
+  camera name/source, verified capture time or **Image time unknown**, separate
+  AEST image-retrieval time, back-to-map link and page numbers.
+- Camera indices list each camera through 62 eligible images; exceptionally
+  large reports index inclusive six-camera snapshot-page ranges so every
+  snapshot page remains navigable.
+
+The report is a **snapshot, not a live camera feed**. No private ArcGIS
+organisation URL, item ID, token or camera image is persisted in the repo,
+uploaded to another server or sent to GitHub. A signed-in browser must still
+verify access to each live image source and its CORS settings.
+
+Run the static JavaScript/eligibility/navigation test suite with
+`node --test tests/camera-pdf.test.cjs` (also run in GitHub Actions on push).
+The opt-in `?cameraPdfTest=1#cameraPdfLab` remains available for signed-in
+image retrieval diagnostics and stress-test PDFs.
 
 ## Public infrastructure and reference sources
 
