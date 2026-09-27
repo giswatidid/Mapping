@@ -71,6 +71,27 @@ window.MAPPING_CONFIG = {
         nameField: "PROP_DD"
       }
     },
+    // Public service names only: actual hosted URLs are discovered after sign-in.
+    cameraLayers: {
+      floodCameras: {
+        serviceName: "Web Cameras - LIVE",
+        itemTitles: ["Web Cameras - LIVE", "Flood Cameras"],
+        layerId: 0,
+        layerTitle: "Flood Cameras",
+        nameField: "Location_Name"
+      },
+      bccResilience: {
+        serviceName: "BCC_City_Resilience_cameras_view",
+        itemTitles: [
+          "BCC City Resilience cameras DataShare",
+          "BCC City Resilience cameras",
+          "BCC_City_Resilience_cameras_view"
+        ],
+        layerId: 0,
+        layerTitle: "BCC City Resilience cameras",
+        nameField: "location_name"
+      }
+    },
     standardSources: {
       warning: {
         itemTitle: "BoM Severe Weather Warning WMS APIM PRD",

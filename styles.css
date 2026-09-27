@@ -852,3 +852,44 @@ main { display: grid; gap: 10px; }
     align-self: flex-start;
   }
 }
+
+
+/* Grouped warning-area camera results: UI-only, never drawn on JPEGs. */
+.camera-source {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 10px;
+  min-width: 0;
+}
+.camera-source-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.camera-source-heading strong { font-size: .86rem; color: var(--text); }
+.camera-source-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: .78rem;
+  line-height: 1.45;
+}
+.camera-source .camera-item + .camera-item { margin-top: 8px; }
+.camera-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.camera-actions button.camera-link { cursor: pointer; font-family: inherit; }
+.camera-actions button.camera-link:disabled { opacity: .5; cursor: wait; }
+.camera-layer-link {
+  color: var(--muted);
+  font-size: .75rem;
+  text-decoration: underline;
+}
+@media (max-width: 760px) {
+  .camera-source .camera-item { flex-direction: column; align-items: stretch; }
+}

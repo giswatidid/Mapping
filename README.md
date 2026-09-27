@@ -102,19 +102,37 @@ The affected-areas panel shows source state independently of warning activity. T
 
 Administrative-source resolution does not block map generation. Raster intersection is based on the same warning mask used for warning extent detection, not the rectangular map extent. Severe Thunderstorm analysis uses only `IDZ20006`; optional storm-cell/direction overlays do not affect the LGA or disaster-district result.
 
-## Warning-area traffic cameras
+## Warning-area camera links
 
-For **Severe Thunderstorm** and **Severe Weather**, the browser also checks the Queensland Department of Transport and Main Roads QLDTraffic web-camera feed after the warning mask has been detected.
+On **Severe Thunderstorm** and **Severe Weather**, the browser lists matching
+cameras from three independent sources in the **Cameras in warning area** panel:
 
-- Source endpoint: `https://api.qldtraffic.qld.gov.au/v1/webcams`
-- The API returns GeoJSON Point features with camera metadata and the latest JPEG `image_url`.
-- TMR publishes a public developer API key for this feed; the public key is globally limited to 100 requests per minute.
-- Camera points are tested against the **actual warning raster mask**, not merely the warning bounding extent.
-- Only cameras inside warning pixels are listed.
-- The app does **not** download or embed camera images. Each result provides a **View latest image** link that opens the TMR image in a new tab.
-- Cameras are deliberately **not rendered onto either JPEG product**.
+- **TMR traffic cameras**: public QLDTraffic `/v1/webcams` GeoJSON with
+  `image_url` links, using the official published developer API key.
+- **TMR flood cameras**: authenticated ArcGIS FeatureServer layer 0,
+  `Flood Cameras` in service `Web Cameras - LIVE`, with `Location_Name`
+  and `Image_Url` / numbered `Image_Url` fields. Valid links are listed
+  without preloading any camera images.
+- **BCC City Resilience cameras**: authenticated ArcGIS FeatureServer layer 0
+  in service `BCC_City_Resilience_cameras_view`, with `location_name`,
+  `event_status`, camera IDs and `image_last_updated`. The service declares
+  image attachments rather than a direct image URL attribute. A camera's
+  **View camera image** button fetches only one available image attachment
+  after a user click through their signed-in ArcGIS session. A link to the
+  authenticated ArcGIS item is supplied as a fallback when images are missing
+  or require different permissions.
 
-The camera lookup is non-blocking. Once the warning mask is available, the QLDTraffic request runs independently while the map context and JPEG products continue rendering, so a slow or unavailable camera feed does not delay map generation.
+The two additional services are discovered using configured item-title
+candidates and verified against their **exact service names, layer names,
+point geometry and name-field schema**. Hosted-service URLs, portal item IDs,
+ArcGIS access tokens and private images are not hard-coded in this repository
+or inserted into public links.
+
+Camera locations are checked against the **actual Queensland-clipped warning
+raster mask** rather than the rectangular map extent. Sources run in parallel,
+independently of JPEG generation; an unavailable camera layer cannot prevent
+either map product from being generated. Camera photos are never automatically
+loaded or drawn onto the JPEGs. The camera panel is hidden on the Flooding tab.
 
 ## Public infrastructure and reference sources
 

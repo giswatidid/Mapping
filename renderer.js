@@ -415,99 +415,220 @@
     };
   }
 
-  function renderCameraMatches(cameras, runId) {
-    if (runId !== cameraAnalysisRun || !cameraList) return;
-    cameraList.innerHTML = "";
+  const CAMERA_SOURCES = [
+    { key: "tmr", title: "TMR traffic cameras" },
+    { key: "floodCameras", title: "TMR flood cameras" },
+    { key: "bccResilience", title: "BCC City Resilience cameras" }
+  ];
 
-    if (!cameras.length) {
-      if (cameraStatus) cameraStatus.textContent = "0 cameras";
-      const empty = document.createElement("div");
-      empty.className = "empty-state camera-empty";
-      empty.textContent = "No QLDTraffic traffic cameras were detected inside the current warning pixels.";
-      cameraList.appendChild(empty);
-      return;
-    }
+  function normaliseHostedCamera(feature, kind, source) {
+    if (feature?.geometry?.type !== "Point" ||
+        !Array.isArray(feature.geometry.coordinates)) return null;
+    const props = feature.properties || {};
+    const isFlood = kind === "floodCameras";
+    const name = String(props.Location_Name || props.location_name || "Camera").trim();
+    const objectId = props[source.objectIdField || "OBJECTID"] ??
+      props.OBJECTID ?? props.objectid;
+    const links = isFlood
+      ? Object.entries(props)
+        .filter(([field]) => /^image_?url[0-9]*$/i.test(field))
+        .sort(([a],[b]) => {
+          const number = (field) => Number(field.match(/[0-9]+$/)?.[0] || 0);
+          return number(a)-number(b);
+        })
+        .map(([field,value]) => ({
+          label: "Image " + (field.match(/[0-9]+$/)?.[0] || "1"),
+          url: safeCameraImageUrl(value)
+        }))
+        .filter((entry,index,all) =>
+          entry.url && all.findIndex((other)=>other.url===entry.url)===index
+        )
+      : [];
+    const subtitle = isFlood
+      ? [props.Local_Government_Name,props.Direction].filter(Boolean).join(" · ")
+      : [props.camera_source,props.event_status,
+          props.image_last_updated
+            ? "Updated: "+String(props.image_last_updated) : ""
+        ].filter(Boolean).join(" · ");
+    return {
+      description:name,
+      coordinates:feature.geometry.coordinates,
+      subtitle,links,kind,objectId,
+      hasAttachments:Boolean(source.hasAttachments),
+      portalItemId:source.itemId
+    };
+  }
 
+  function arcgisCameraItemUrl(itemId) {
+    try {
+      const root=window.MAPPING_ARCGIS?.portalUrl;
+      if (!root || !/^[a-f0-9]{32}$/i.test(String(itemId||""))) return "";
+      const url=new URL("/home/item.html",root);
+      url.searchParams.set("id",itemId);
+      return url.toString();
+    } catch { return ""; }
+  }
+
+  async function openBCCCameraImage(camera,button) {
+    const tab=window.open("about:blank","_blank");
+    if (!tab) { button.textContent="Allow pop-ups to view";return; }
+    tab.opener=null;
+    tab.document.title="Loading camera";
+    tab.document.body.textContent="Loading camera image from ArcGIS…";
+    button.disabled=true;
+    try {
+      const image=await window.MAPPING_ARCGIS.fetchCameraAttachment(
+        "bccResilience",camera.objectId
+      );
+      const blobUrl=URL.createObjectURL(image);
+      if (!tab.closed) tab.location.replace(blobUrl);
+      window.setTimeout(()=>URL.revokeObjectURL(blobUrl),120000);
+    } catch(error) {
+      if (!tab.closed) {
+        tab.document.body.textContent="Camera image unavailable: "+
+          cleanMessage(error,"Unable to open image.")+
+          ". Try the ArcGIS layer link in the Mapping app.";
+      }
+    } finally { button.disabled=false; }
+  }
+
+  function renderAllCameraSources(state,runId) {
+    if (runId!==cameraAnalysisRun || !cameraList) return;
+    const found=CAMERA_SOURCES.reduce((sum,source)=>
+      sum+(state[source.key]?.cameras?.length||0),0);
+    const pending=CAMERA_SOURCES.filter((source)=>
+      state[source.key]?.status==="checking").length;
+    const failed=CAMERA_SOURCES.filter((source)=>
+      state[source.key]?.status==="unavailable").length;
     if (cameraStatus) {
-      cameraStatus.textContent = cameras.length + " camera" + (cameras.length === 1 ? "" : "s");
+      cameraStatus.textContent=found+" camera"+(found===1?"":"s")+
+        (pending?" · "+pending+" checking":"")+
+        (failed?" · "+failed+" unavailable":"");
     }
+    cameraList.innerHTML="";
+    CAMERA_SOURCES.forEach(({key,title})=>{
+      const data=state[key] || {status:"checking",cameras:[]};
+      const group=document.createElement("section");
+      group.className="camera-source";
+      const header=document.createElement("div");
+      header.className="camera-source-heading";
+      const name=document.createElement("strong");
+      name.textContent=title;
+      const badge=document.createElement("span");
+      badge.className="boundary-source-status "+(
+        data.status==="unavailable"?"error":
+        data.status==="checking"?"warning":"ok"
+      );
+      badge.textContent=data.status==="checking"?"Checking":
+        data.status==="unavailable"?"Unavailable":
+        data.cameras.length+" found";
+      header.append(name,badge);
+      group.appendChild(header);
 
-    cameras.forEach((camera) => {
-      const item = document.createElement("article");
-      item.className = "camera-item";
-
-      const copy = document.createElement("div");
-      copy.className = "camera-copy";
-
-      const title = document.createElement("strong");
-      title.textContent = camera.description;
-
-      const parts = [camera.locality, camera.direction, camera.district].filter(Boolean);
-      const meta = document.createElement("small");
-      meta.textContent = parts.join(" · ") || "QLDTraffic traffic camera";
-
-      const link = document.createElement("a");
-      link.className = "camera-link";
-      link.href = camera.imageUrl;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.textContent = "View latest image";
-
-      copy.append(title, meta);
-      item.append(copy, link);
-      cameraList.appendChild(item);
+      if (!data.cameras.length) {
+        const note=document.createElement("p");
+        note.className="camera-source-note";
+        note.textContent=data.status==="unavailable" ? data.error:
+          data.status==="checking"?"Checking this source…":
+          "No cameras from this source inside the warning.";
+        group.appendChild(note);
+      }
+      data.cameras.forEach((camera)=>{
+        const item=document.createElement("article");
+        item.className="camera-item";
+        const copy=document.createElement("div");
+        copy.className="camera-copy";
+        const h=document.createElement("strong");
+        h.textContent=camera.description;
+        const small=document.createElement("small");
+        small.textContent=camera.subtitle||title;
+        copy.append(h,small);
+        const actions=document.createElement("div");
+        actions.className="camera-actions";
+        camera.links.forEach((target)=>{
+          const a=document.createElement("a");
+          a.className="camera-link";
+          a.href=target.url;
+          a.target="_blank";a.rel="noopener noreferrer";
+          a.textContent=target.label;
+          actions.appendChild(a);
+        });
+        if (camera.kind==="bccResilience" &&
+            camera.hasAttachments && camera.objectId!=null) {
+          const button=document.createElement("button");
+          button.type="button";button.className="camera-link";
+          button.textContent="View camera image";
+          button.addEventListener("click",()=>
+            void openBCCCameraImage(camera,button)
+          );
+          actions.appendChild(button);
+        }
+        const itemUrl=arcgisCameraItemUrl(camera.portalItemId);
+        if (itemUrl) {
+          const a=document.createElement("a");
+          a.className="camera-layer-link";
+          a.href=itemUrl;a.target="_blank";a.rel="noopener noreferrer";
+          a.textContent="ArcGIS layer";
+          actions.appendChild(a);
+        }
+        item.append(copy,actions);
+        group.appendChild(item);
+      });
+      cameraList.appendChild(group);
     });
   }
 
-  async function analyseCamerasForWarning(warning, profile, runId) {
-    if (runId !== cameraAnalysisRun || profile?.key === "flooding") return;
-
+  async function analyseCamerasForWarning(warning,profile,runId) {
+    if (runId!==cameraAnalysisRun || profile?.key==="flooding") return;
     if (!warning?.active || !warning?.mask) {
-      if (cameraStatus) cameraStatus.textContent = "No active warning";
-      resetCameraPanel("No active warning pixels were detected, so there are no warning-area cameras to list.");
-      if (cameraStatus) cameraStatus.textContent = "No active warning";
+      resetCameraPanel("No active Queensland warning pixels detected.");
+      if (cameraStatus) cameraStatus.textContent="No active warning";
       return;
     }
-
-    if (cameraStatus) cameraStatus.textContent = "Checking…";
-    if (cameraList) {
-      cameraList.innerHTML = "";
-      const empty = document.createElement("div");
-      empty.className = "empty-state camera-empty";
-      empty.textContent = "Checking QLDTraffic camera locations against the warning pixels…";
-      cameraList.appendChild(empty);
-    }
-
-    try {
-      if (!publicSources.trafficCameras) throw new Error("QLDTraffic camera feed is not configured.");
-      const payload = await promiseTimeout(
-        fetchJson(publicSources.trafficCameras),
-        10000,
-        "QLDTraffic camera request timed out."
-      );
-      if (runId !== cameraAnalysisRun) return;
-
-      const cameras = (payload?.features || [])
-        .map(normaliseTrafficCamera)
-        .filter(Boolean)
-        .filter((camera) => warningMaskContainsPoint(warning.mask, camera.coordinates))
-        .sort((a, b) => {
-          const localityCompare = a.locality.localeCompare(b.locality, "en-AU");
-          return localityCompare || a.description.localeCompare(b.description, "en-AU");
-        });
-
-      renderCameraMatches(cameras, runId);
-    } catch (error) {
-      if (runId !== cameraAnalysisRun) return;
-      if (cameraStatus) cameraStatus.textContent = "Unavailable";
-      if (cameraList) {
-        cameraList.innerHTML = "";
-        const empty = document.createElement("div");
-        empty.className = "empty-state camera-empty";
-        empty.textContent = "Camera feed unavailable for this run: " + cleanMessage(error, "QLDTraffic camera request failed.");
-        cameraList.appendChild(empty);
+    const state=Object.fromEntries(CAMERA_SOURCES.map((source)=>[
+      source.key,{status:"checking",cameras:[],error:""}
+    ]));
+    renderAllCameraSources(state,runId);
+    // Independent requests: camera feeds cannot delay or fail JPEG generation.
+    await Promise.allSettled(CAMERA_SOURCES.map(async ({key})=>{
+      try {
+        let cameras;
+        if (key==="tmr") {
+          if (!publicSources.trafficCameras) throw new Error("No TMR camera feed.");
+          const data=await promiseTimeout(fetchJson(publicSources.trafficCameras),
+            10000,"TMR traffic-camera feed timed out.");
+          if (!Array.isArray(data?.features)) throw new Error("TMR feed returned no features.");
+          cameras=data.features.map(normaliseTrafficCamera).filter(Boolean)
+            .map((camera)=>({
+              ...camera,subtitle:[camera.locality,camera.direction,camera.district]
+                .filter(Boolean).join(" · "),
+              links:[{label:"Latest image",url:camera.imageUrl}]
+            }));
+        } else {
+          const sdk=window.MAPPING_ARCGIS;
+          if (!sdk?.queryCameraLayer) throw new Error("ArcGIS camera access is not ready.");
+          const data=await promiseTimeout(sdk.queryCameraLayer(key,warning.extent),
+            14000,"Authenticated camera query timed out.");
+          cameras=data.features.map((feature)=>
+            normaliseHostedCamera(feature,key,data.source)
+          ).filter(Boolean);
+        }
+        if (runId!==cameraAnalysisRun) return;
+        state[key]={
+          status:"ready",error:"",
+          cameras:cameras.filter((camera)=>
+            warningMaskContainsPoint(warning.mask,camera.coordinates)
+          ).sort((a,b)=>a.description.localeCompare(b.description,"en-AU"))
+        };
+      } catch(error) {
+        if (runId!==cameraAnalysisRun) return;
+        state[key]={
+          status:"unavailable",cameras:[],
+          error:cleanMessage(error,"Camera source could not be accessed.")
+        };
       }
-    }
+      renderAllCameraSources(state,runId);
+    }));
   }
 
   function promiseTimeout(promise, ms, message) {
@@ -2327,6 +2448,8 @@
     }
 
     const profile = currentProfile();
+    cameraAnalysisRun += 1;
+    if (profile.key !== "flooding") resetCameraPanel("Generating warning mask…");
     generating = true;
     updateGenerateState();
     mapsEl.innerHTML = "";

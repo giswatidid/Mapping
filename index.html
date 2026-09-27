@@ -10,8 +10,8 @@
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png?v=20260921-map1">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png?v=20260921-map1">
   <link rel="shortcut icon" href="favicon.ico?v=20260921-map1">
-  <link rel="stylesheet" href="styles.css?v=20260920-browser25">
-  <link rel="stylesheet" href="auth.css?v=20260920-browser25">
+  <link rel="stylesheet" href="styles.css?v=20260927-browser26">
+  <link rel="stylesheet" href="auth.css?v=20260927-browser26">
 </head>
 <body>
   <main id="loginGate" class="auth-page" hidden>
@@ -162,7 +162,7 @@
         <div class="panel-header">
           <div class="panel-title">
             <h2>Cameras in warning area</h2>
-            <p>Checks QLDTraffic traffic-camera points against the actual Severe Thunderstorm or Severe Weather warning pixels. Camera images are not loaded into this page or added to the JPEGs.</p>
+            <p>Checks TMR traffic cameras, TMR flood cameras and BCC City Resilience cameras against the actual Queensland warning pixels. Images open only when selected; none are added to the JPEGs.</p>
           </div>
           <div class="panel-scope"><span id="cameraStatus" class="mini-chip">Generate to analyse</span></div>
         </div>
@@ -170,7 +170,7 @@
           <div id="cameraList" class="camera-list">
             <div class="empty-state camera-empty">Generate a Severe Thunderstorm or Severe Weather map to find traffic cameras inside the warning area.</div>
           </div>
-          <p class="camera-note">Source: Queensland Department of Transport and Main Roads QLDTraffic web-camera feed. Links open the latest still image in a new tab.</p>
+          <p class="camera-note">Sources: public QLDTraffic webcams and authenticated ArcGIS Flood Cameras / BCC City Resilience camera layers. Some images require the signed-in ArcGIS account; inaccessible sources are shown separately.</p>
         </div>
       </section>
 
@@ -225,10 +225,10 @@
     </footer>
   </div>
 
-  <script src="config.js?v=20260920-browser25"></script>
+  <script src="config.js?v=20260927-browser26"></script>
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
-  <script type="module" src="arcgis-auth.js?v=20260920-browser25"></script>
-  <script src="app.js?v=20260920-browser25"></script>
-  <script src="renderer.js?v=20260920-browser25"></script>
+  <script type="module" src="arcgis-auth.js?v=20260927-browser26"></script>
+  <script src="app.js?v=20260927-browser26"></script>
+  <script src="renderer.js?v=20260927-browser26"></script>
 </body>
 </html>

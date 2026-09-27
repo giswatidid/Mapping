@@ -37,6 +37,8 @@ let portalUrl;
 
 const runtimeSources = new Map();
 const runtimeAdminLayers = new Map();
+const runtimeCameraLayers = new Map();
+const cameraLayerPromises = new Map();
 
 function getLocal(key) {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -661,6 +663,189 @@ async function resolveAllAdministrativeLayers(clearCached=false) {
     detail: results
   }));
   return results;
+}
+
+
+function cameraServiceMatches(url, serviceName) {
+  try {
+    const path = decodeURIComponent(new URL(url).pathname);
+    const match = path.match(/\/([^/]+)\/FeatureServer(?:\/\d+)?$/i);
+    return Boolean(match && normalise(match[1]) === normalise(serviceName));
+  } catch {
+    return false;
+  }
+}
+
+async function findCameraPortalCandidates(spec) {
+  const aliases = spec.itemTitles || [];
+  const allowed = new Set(aliases.map(normalise));
+  const candidates = new Map();
+  const query = aliases.map((title) =>
+    'title:"' + title.replaceAll('"', '\\"') + '"'
+  ).join(" OR ");
+
+  function include(items) {
+    (items || []).forEach((item) => {
+      if (item?.id && (allowed.has(normalise(item.title)) ||
+          cameraServiceMatches(item.url, spec.serviceName))) {
+        candidates.set(item.id, item);
+      }
+    });
+  }
+
+  try {
+    const found = await portal.queryItems({
+      query, num: 100, sortField: "modified", sortOrder: "desc"
+    });
+    include(found.results);
+  } catch {}
+
+  if (!candidates.size) {
+    try {
+      const groups = await portal.user?.fetchGroups();
+      const settled = await Promise.allSettled((groups || []).map(async (group) => {
+        const found = await group.queryItems({ query, num: 100 });
+        return found.results || [];
+      }));
+      settled.forEach((entry) => {
+        if (entry.status === "fulfilled") include(entry.value);
+      });
+    } catch {}
+  }
+
+  return [...candidates.values()].sort((a,b) =>
+    Number(b.modified || 0) - Number(a.modified || 0)
+  );
+}
+
+async function resolveCameraLayer(key) {
+  if (runtimeCameraLayers.has(key)) return runtimeCameraLayers.get(key);
+  if (cameraLayerPromises.has(key)) return cameraLayerPromises.get(key);
+  const spec = cfg.cameraLayers?.[key];
+  if (!spec) throw new Error("Unknown camera source: " + key + ".");
+
+  const promise = (async () => {
+    const candidates = await findCameraPortalCandidates(spec);
+    if (!candidates.length) {
+      throw new Error(spec.layerTitle + " is not discoverable in this ArcGIS account.");
+    }
+
+    let lastError = null;
+    for (const candidate of candidates) {
+      try {
+        const item = new PortalItem({ id: candidate.id, portal });
+        await item.load();
+        if (!cameraServiceMatches(item.url, spec.serviceName)) continue;
+
+        const url = administrativeLayerUrl(item.url, spec.layerId);
+        const response = await esriRequest(url, {
+          responseType: "json", authMode: "auto", query: { f: "json" }
+        });
+        const metadata = response?.data || {};
+        if (metadata.error) throw new Error(metadata.error.message || "Layer metadata request failed.");
+
+        const fields = new Set((metadata.fields || []).map((field) => normalise(field.name)));
+        if (normalise(metadata.name) !== normalise(spec.layerTitle) ||
+            !/point/i.test(String(metadata.geometryType || "")) ||
+            !fields.has(normalise(spec.nameField))) {
+          throw new Error(spec.layerTitle + " did not match the expected point-layer schema.");
+        }
+        if (metadata.capabilities && !/query/i.test(String(metadata.capabilities))) {
+          throw new Error(spec.layerTitle + " does not support feature queries.");
+        }
+
+        const resolved = {
+          key,
+          queryUrl: url,
+          itemId: item.id,
+          title: spec.layerTitle,
+          hasAttachments: Boolean(metadata.hasAttachments),
+          objectIdField: metadata.objectIdField || "OBJECTID"
+        };
+        runtimeCameraLayers.set(key, resolved);
+        return resolved;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw new Error(lastError?.message ||
+      spec.layerTitle + " service was not found among accessible ArcGIS items.");
+  })();
+
+  cameraLayerPromises.set(key, promise);
+  try {
+    return await promise;
+  } finally {
+    if (cameraLayerPromises.get(key) === promise) cameraLayerPromises.delete(key);
+  }
+}
+
+async function queryCameraLayer(key, extent) {
+  const layer = await resolveCameraLayer(key);
+  const bounds = Array.isArray(extent)
+    ? extent : [extent.xmin,extent.ymin,extent.xmax,extent.ymax];
+  const response = await esriRequest(layer.queryUrl.replace(/\/$/, "") + "/query", {
+    responseType: "json",
+    authMode: "auto",
+    query: {
+      where: "1=1",
+      outFields: "*",
+      returnGeometry: true,
+      f: "geojson",
+      outSR: 4326,
+      geometry: bounds.join(","),
+      geometryType: "esriGeometryEnvelope",
+      inSR: 4326,
+      spatialRel: "esriSpatialRelIntersects",
+      resultRecordCount: 2000
+    }
+  });
+  const payload = response?.data || {};
+  if (payload.error) throw new Error(payload.error.message || "Camera layer request failed.");
+  if (payload.type !== "FeatureCollection" || !Array.isArray(payload.features)) {
+    throw new Error(layer.title + " did not return GeoJSON point features.");
+  }
+  if (payload.exceededTransferLimit) {
+    throw new Error(layer.title + " returned a truncated camera list.");
+  }
+  return {
+    ...payload,
+    source: {
+      key: layer.key,
+      itemId: layer.itemId,
+      title: layer.title,
+      hasAttachments: layer.hasAttachments,
+      objectIdField: layer.objectIdField
+    }
+  };
+}
+
+async function fetchCameraAttachment(key, objectId) {
+  const layer = await resolveCameraLayer(key);
+  if (!layer.hasAttachments) throw new Error("This camera layer has no attachments.");
+  if (!Number.isSafeInteger(Number(objectId))) throw new Error("Invalid camera object ID.");
+  const response = await esriRequest(layer.queryUrl.replace(/\/$/, "") + "/queryAttachments", {
+    responseType: "json", authMode: "auto",
+    query: { objectIds: String(objectId), returnUrl: true, f: "json" }
+  });
+  const payload = response?.data || {};
+  if (payload.error) throw new Error(payload.error.message || "Camera attachment query failed.");
+  const images = (payload.attachmentGroups || [])
+    .filter((entry) => String(entry.parentObjectId) === String(objectId))
+    .flatMap((entry) => entry.attachmentInfos || [])
+    .filter((entry) => String(entry.contentType || "").toLowerCase().startsWith("image/"))
+    .sort((a,b) => Number(b.lastEditDate || 0)-Number(a.lastEditDate || 0));
+  if (!images.length) throw new Error("This camera currently has no image attachment.");
+
+  // Images are fetched on user clicks only. SDK-managed OAuth tokens
+  // are not embedded in links, stored or committed.
+  const attachmentUrl = layer.queryUrl.replace(/\/$/, "") +
+    "/" + Number(objectId) + "/attachments/" + Number(images[0].id);
+  const image = await esriRequest(attachmentUrl, {
+    responseType: "blob", authMode: "auto"
+  });
+  if (!image?.data?.size) throw new Error("The camera image attachment was empty.");
+  return image.data;
 }
 
 async function queryAdministrativeLayerFromResolved(key, extent, outFields="*") {
@@ -1430,6 +1615,12 @@ async function showApp() {
       return renderTopographicBasemap(extent, width, height, options);
     },
     resolveAdministrativeLayers: resolveAllAdministrativeLayers,
+    queryCameraLayer(key, extent) {
+      return queryCameraLayer(key, extent);
+    },
+    fetchCameraAttachment(key, objectId) {
+      return fetchCameraAttachment(key, objectId);
+    },
     getAdministrativeLayer(key) {
       return publicAdministrativeLayer(runtimeAdminLayers.get(key));
     },
@@ -1501,6 +1692,8 @@ async function init() {
     portal = null;
     runtimeSources.clear();
     runtimeAdminLayers.clear();
+    runtimeCameraLayers.clear();
+    cameraLayerPromises.clear();
     window.MAPPING_ARCGIS = null;
     showLogin("Signed out of this application. Your organisation SSO session may remain active in the browser.");
   });
@@ -1508,6 +1701,8 @@ async function init() {
   ui.reconnect?.addEventListener("click", () => {
     void resolveAllStandardSources(true);
     void resolveAllAdministrativeLayers(true);
+    runtimeCameraLayers.clear();
+    cameraLayerPromises.clear();
   });
 
   const savedPrefix = orgPrefix(getLocal(ORG_KEY));
