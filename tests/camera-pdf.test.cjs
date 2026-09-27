@@ -167,7 +167,12 @@ function fakeBrowser({ count = 13, stale = false, allCors = false,
       },
       async fetchCameraAttachment() { return new Blob(["synthetic image"]); }
     },
-    setTimeout
+    // Browser object-URL revocation must not hold the Node test runner open.
+    setTimeout(callback, ms) {
+      const timer = setTimeout(callback, ms);
+      timer.unref?.();
+      return timer;
+    }
   };
   const fakeCtx = {
     fillRect() {}, drawImage() {}, beginPath() {}, moveTo() {},
@@ -299,6 +304,15 @@ test("zero eligible images and explicit cancellation produce no PDF", async () =
 
 test("Flooding/no warning disables production camera report", () => {
   const browser = fakeBrowser({ count: 3, noWarnings: true });
+  assert.equal(browser.els.generateCameraPdf.disabled, true);
+  assert.equal(browser.pdfs.length, 0);
+});
+
+test("regenerating maps or switching warning tabs invalidates an in-flight PDF", async () => {
+  const browser = fakeBrowser({ count: 12 });
+  browser.els.generateCameraPdf.handlers.click();
+  browser.root.MAPPING_CAMERA_REPORT.invalidate();
+  await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(browser.els.generateCameraPdf.disabled, true);
   assert.equal(browser.pdfs.length, 0);
 });
