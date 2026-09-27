@@ -192,7 +192,7 @@ function fakeBrowser({ count = 13, stale = false, allCors = false,
   };
   const context = {
     window: root, document, location: { protocol: "https:" },
-    URL: FakeURL, Blob, Date, Math, DOMException,
+    URL: FakeURL, Blob, Date, Math, DOMException, AbortController,
     setTimeout, clearTimeout, console,
     createImageBitmap: async () => ({ width: 1100, height: 755, close() {} }),
     fetch: async url => {
