@@ -10,8 +10,21 @@
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png?v=20260921-map1">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png?v=20260921-map1">
   <link rel="shortcut icon" href="favicon.ico?v=20260921-map1">
-  <link rel="stylesheet" href="styles.css?v=20260927-browser26">
-  <link rel="stylesheet" href="auth.css?v=20260927-browser26">
+  <!-- Remember the test link before the ArcGIS OAuth module can redirect. -->
+  <script>
+    (() => {
+      const mode = new URLSearchParams(location.search).get("cameraPdfTest");
+      try {
+        if (mode === "1") {
+          sessionStorage.setItem("mapping.cameraPdfTest.until", String(Date.now() + 3600000));
+        } else if (mode === "0") {
+          sessionStorage.removeItem("mapping.cameraPdfTest.until");
+        }
+      } catch {}
+    })();
+  </script>
+  <link rel="stylesheet" href="styles.css?v=20260927-browser27">
+  <link rel="stylesheet" href="auth.css?v=20260927-browser27">
 </head>
 <body>
   <main id="loginGate" class="auth-page" hidden>
@@ -167,6 +180,12 @@
           <div class="panel-scope"><span id="cameraStatus" class="mini-chip">Generate to analyse</span></div>
         </div>
         <div class="panel-body">
+          <div class="camera-pdf-entry">
+            <a id="cameraPdfLabLauncher" class="camera-pdf-launch" href="?cameraPdfTest=1#cameraPdfLab">
+              Open camera PDF test
+            </a>
+            <span>Experimental image-retrieval and six-per-page PDF test. Independent of map generation.</span>
+          </div>
           <div id="cameraList" class="camera-list">
             <div class="empty-state camera-empty">Generate a Severe Thunderstorm or Severe Weather map to find traffic cameras inside the warning area.</div>
           </div>
@@ -266,11 +285,11 @@
     </footer>
   </div>
 
-  <script src="config.js?v=20260927-browser26"></script>
+  <script src="config.js?v=20260927-browser27"></script>
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
-  <script type="module" src="arcgis-auth.js?v=20260927-browser26"></script>
-  <script src="app.js?v=20260927-browser26"></script>
-  <script src="renderer.js?v=20260927-browser26"></script>
+  <script type="module" src="arcgis-auth.js?v=20260927-browser27"></script>
+  <script src="app.js?v=20260927-browser27"></script>
+  <script src="renderer.js?v=20260927-browser27"></script>
   <script src="camera-pdf-probe.js?v=20260927-lab1"></script>
 </body>
 </html>

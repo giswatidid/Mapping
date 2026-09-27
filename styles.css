@@ -913,3 +913,28 @@ main { display: grid; gap: 10px; }
 }
 .camera-lab-table th { white-space:nowrap; }
 .camera-lab-table td:last-child { min-width:180px; overflow-wrap:anywhere; }
+
+
+/* Visible entry point for the opt-in PDF test, independent of map generation. */
+.camera-pdf-entry {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px 12px;
+  margin-bottom: 12px;
+}
+.camera-pdf-entry span { font-size: .78rem; color: var(--muted); }
+.camera-pdf-launch {
+  display: inline-flex;
+  align-items: center;
+  min-height: 35px;
+  padding: 7px 12px;
+  border: 1px solid #aa2929;
+  border-radius: 3px;
+  background: #b62b30;
+  color: white;
+  font-size: .8rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.camera-pdf-launch:hover { background: #9b2025; color: white; }
