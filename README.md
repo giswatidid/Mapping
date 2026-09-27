@@ -159,7 +159,10 @@ open the same page with `?cameraPdfTest=1` to display a separate test-only
    size/layout, **not** retrieval of 18 or 36 unique live cameras.
 
 The test-only PDF library is a **bundled, pinned jsPDF 2.5.2 copy** with
-its upstream licence in `vendor/`. It loads on demand only after pressing
+its upstream licence in `vendor/`. Its UMD entry has a browser-export
+compatibility adjustment to avoid AMD loader collisions in the ArcGIS page.
+The prototype checks that the library can generate a real PDF before proceeding.
+It loads on demand only after pressing
 Generate sample PDF, without requiring a corporate browser to reach a
 third-party PDF CDN. Test mode is remembered for one hour in the same tab
 so that the ArcGIS organisation's OAuth redirect can complete without losing

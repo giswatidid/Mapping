@@ -305,22 +305,56 @@
   }
 
   let loadingPdf=null;
+  function checkPdfLibrary(Ctor) {
+    if(typeof Ctor!=="function")throw new Error("The PDF constructor was not exported.");
+    // Check actual PDF generation, not just whether a script file loaded.
+    const test=new Ctor({orientation:"landscape",unit:"mm",format:"a4"});
+    test.text("Camera PDF library check",12,14);
+    const bytes=test.output();
+    if(typeof bytes!=="string"||!bytes.startsWith("%PDF")) {
+      throw new Error("The PDF library failed its document self-check.");
+    }
+    return Ctor;
+  }
+
   async function ensurePdf() {
-    if(window.jspdf?.jsPDF)return window.jspdf.jsPDF;
+    if(typeof window.jspdf?.jsPDF==="function") {
+      return checkPdfLibrary(window.jspdf.jsPDF);
+    }
     if(!loadingPdf)loadingPdf=new Promise((resolve,reject)=>{
       const script=document.createElement("script");
-      // Bundled, pinned copy. No third-party PDF CDN request on work networks.
-      script.src="vendor/jspdf.umd.min.js";
+      // Explicit browser-global jsPDF export. The normal upstream UMD entry
+      // can register with another AMD loader and leave window.jspdf missing.
+      script.src="vendor/jspdf.umd.min.js?v=20260927-browser2";
       script.async=true;
-      script.onload=()=>window.jspdf?.jsPDF?
-        resolve(window.jspdf.jsPDF):reject(new Error("PDF library did not initialise"));
-      script.onerror=()=>reject(new Error(
-        "The bundled PDF library could not be loaded. Image retrieval test remains valid."
-      ));
+      let executionError="";
+      const catchExecutionError=(event)=>{
+        if(String(event.filename||"").includes("jspdf.umd.min.js")) {
+          executionError=String(event.message||"Unknown JavaScript error").slice(0,160);
+        }
+      };
+      window.addEventListener("error",catchExecutionError);
+      const cleanup=()=>window.removeEventListener("error",catchExecutionError);
+      script.onload=()=>{
+        cleanup();
+        try {
+          if(typeof window.jspdf?.jsPDF!=="function") {
+            throw new Error("PDF script loaded without a browser export"+
+              (executionError?": "+executionError:""));
+          }
+          resolve(checkPdfLibrary(window.jspdf.jsPDF));
+        } catch(error) {reject(error);}
+      };
+      script.onerror=()=>{
+        cleanup();
+        reject(new Error(
+          "Bundled PDF script failed to load. Camera image retrieval still works."
+        ));
+      };
       document.head.appendChild(script);
     });
-    return loadingPdf.catch((error) => {
-      loadingPdf = null;
+    return loadingPdf.catch((error)=>{
+      loadingPdf=null;
       throw error;
     });
   }
