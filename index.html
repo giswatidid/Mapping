@@ -174,6 +174,47 @@
         </div>
       </section>
 
+
+      <!-- Proof-of-concept only. Appears with ?cameraPdfTest=1;
+           it never runs as part of map or ordinary camera generation. -->
+      <section id="cameraPdfLab" class="panel camera-pdf-lab" hidden>
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>Camera PDF lab <span class="mini-chip">TEST ONLY</span></h2>
+            <a href="?cameraPdfTest=0" class="camera-layer-link">Exit test mode</a>
+            <p>Independent test of image retrieval and six-per-page landscape A4 PDF layout.
+              Uses sample cameras around South East Queensland, not a current warning.</p>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="camera-pdf-lab-controls">
+            <button id="cameraPdfProbeRun" type="button">1. Test camera image retrieval</button>
+            <label for="cameraPdfProbeCount">Sample PDF size</label>
+            <select id="cameraPdfProbeCount">
+              <option value="6">6 slots (two pages)</option>
+              <option value="18">18 slots (layout repeats)</option>
+              <option value="36">36 slots (layout repeats)</option>
+            </select>
+            <button id="cameraPdfProbePdf" type="button" disabled>2. Generate sample PDF</button>
+          </div>
+          <p id="cameraPdfProbeSummary" class="camera-note" aria-live="polite">
+            Test mode is ready. No camera images are fetched until you press the first button.
+          </p>
+          <div class="camera-lab-table-wrap">
+            <table class="camera-lab-table">
+              <thead><tr>
+                <th>Source</th><th>Status</th><th>Cameras</th><th>Images fetched</th>
+                <th>Duration</th><th>Detail</th>
+              </tr></thead>
+              <tbody id="cameraPdfProbeResults"></tbody>
+            </table>
+          </div>
+          <p class="camera-note">Only image retrieval and PDF layout are being tested.
+            No active weather warning is assumed. Nothing is sent to GitHub or added to
+            the operational JPEG workflow. PDFs are generated and downloaded in this browser.</p>
+        </div>
+      </section>
+
       <section id="floodSelectionPanel" class="panel flood-selection-panel" hidden>
         <div class="panel-header">
           <div class="panel-title">
@@ -230,5 +271,6 @@
   <script type="module" src="arcgis-auth.js?v=20260927-browser26"></script>
   <script src="app.js?v=20260927-browser26"></script>
   <script src="renderer.js?v=20260927-browser26"></script>
+  <script src="camera-pdf-probe.js?v=20260927-lab1"></script>
 </body>
 </html>

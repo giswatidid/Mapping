@@ -134,6 +134,40 @@ independently of JPEG generation; an unavailable camera layer cannot prevent
 either map product from being generated. Camera photos are never automatically
 loaded or drawn onto the JPEGs. The camera panel is hidden on the Flooding tab.
 
+## Camera PDF proof-of-concept test
+
+**Not part of the operational map generator.** After signing in to ArcGIS,
+open the same page with `?cameraPdfTest=1` to display a separate test-only
+**Camera PDF lab**. It does not require an active warning.
+
+1. **Test camera image retrieval** selects up to two sample cameras from
+   each of the existing TMR traffic, TMR flood and BCC resilience sources.
+   South East Queensland is the initial test region; flood cameras fall back
+   to a statewide lookup if no local samples are found. The test attempts
+   to retrieve actual image bytes (not merely display a camera link) and
+   reports per-source successes, failures and elapsed time. No credentials,
+   private service URLs or image bytes are logged or sent to GitHub.
+2. **Generate sample PDF** produces a local landscape A4 PDF with an
+   illustrative geographic overview map on page one, clickable numbered
+   camera markers, and six snapshot tiles per subsequent page. Available
+   images are embedded as JPEGs; failed images are explicit placeholders.
+   A signed-in ArcGIS Topographic basemap is attempted but is optional.
+   The PDF is labelled `TEST ONLY` and is not a weather-warning product.
+   It has internal map/page and page/map navigation.
+3. For 18- and 36-slot **layout/performance tests**, the same available
+   samples repeat and are marked as layout repeats. This tests document
+   size/layout, **not** retrieval of 18 or 36 unique live cameras.
+
+The test-only PDF library is a **bundled, pinned jsPDF 2.5.2 copy** with
+its upstream licence in `vendor/`. It loads on demand only after pressing
+Generate sample PDF, without requiring a corporate browser to reach a
+third-party PDF CDN. Test mode is remembered for one hour in the same tab
+so that the ArcGIS organisation's OAuth redirect can complete without losing
+it; use **Exit test mode** to clear that flag. The prototype intentionally
+does not introduce a live
+`Generate Camera PDF` button into the ordinary warning-area camera panel
+until image access is verified with the signed-in ArcGIS account.
+
 ## Public infrastructure and reference sources
 
 ### Power outages

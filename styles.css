@@ -893,3 +893,23 @@ main { display: grid; gap: 10px; }
 @media (max-width: 760px) {
   .camera-source .camera-item { flex-direction: column; align-items: stretch; }
 }
+
+
+/* Opt-in camera PDF proof of concept; hidden during normal map operations. */
+.camera-pdf-lab[hidden] { display:none !important; }
+.camera-pdf-lab-controls { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.camera-pdf-lab-controls label { font-size:.8rem; font-weight:600; }
+.camera-pdf-lab-controls select {
+  min-height:35px; border:1px solid var(--line);
+  border-radius:3px; padding:5px; background:var(--panel); color:var(--text);
+}
+.camera-pdf-lab-controls button:disabled { opacity:.5; cursor:wait; }
+.camera-lab-table-wrap { max-width:100%; overflow-x:auto; margin-top:14px; }
+.camera-lab-table {
+  width:100%; border-collapse:collapse; font-size:.78rem; text-align:left;
+}
+.camera-lab-table th,.camera-lab-table td {
+  padding:8px; border-bottom:1px solid var(--line); vertical-align:top;
+}
+.camera-lab-table th { white-space:nowrap; }
+.camera-lab-table td:last-child { min-width:180px; overflow-wrap:anywhere; }
