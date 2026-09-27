@@ -149,9 +149,14 @@ open the same page with `?cameraPdfTest=1` to display a separate test-only
    to a statewide lookup if no local samples are found. If the QLDTraffic API
    is blocked, the app queries Queensland Government's public
    **StateRoadInformation MapServer/4** traffic-camera layer anonymously through
-   the ArcGIS SDK. That fallback exposes camera locations and image URLs but no
-   image update timestamp. Browser permissions to retrieve the images must still
-   be tested. The test attempts
+   the ArcGIS SDK. The test also queries the existing signed-in
+   **Web Cameras - LIVE** ArcGIS layer (which includes both traffic and flood
+   camera photographs), correlates traffic locations by geographic distance
+   and overlapping location-name words, and prioritises current hosted
+   Image_Url fields where the match is unambiguous. Unmatched public
+   cameras retain their original links for diagnostics; no image URL or
+   camera association is guessed. Direct links still require CORS permission
+   for browser-side PDF embedding. The test attempts
    to retrieve actual image bytes (not merely display a camera link) and
    reports per-source successes, failures and elapsed time. For TMR traffic
    cameras that cannot be fetched as image bytes, it additionally tests

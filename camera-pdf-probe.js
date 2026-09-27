@@ -116,6 +116,67 @@
     countSelect.disabled=value;
   }
 
+  // The public traffic layer provides camera locations but some image URLs
+  // are obsolete. Web Cameras - LIVE also contains traffic camera images.
+  // Correlate features by BOTH distance and meaningful name overlap.
+  const cameraNameTokens=(value)=>new Set(String(value||"")
+    .toLowerCase().replace(/&/g," and ")
+    .replace(/[^a-z0-9]+/g," ").split(" ")
+    .filter(token=>token.length>=3&&![
+      "camera","traffic","flood","road","street","the",
+      "and","near","view","north","south","east","west","highway"
+    ].includes(token)));
+
+  function cameraDistanceMeters(a,b){
+    const rad=Math.PI/180,lat1=Number(a[1])*rad,lat2=Number(b[1])*rad;
+    const dLat=(Number(b[1])-Number(a[1]))*rad;
+    const dLon=(Number(b[0])-Number(a[0]))*rad;
+    const v=Math.sin(dLat/2)**2+
+      Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
+    return 12742000*Math.atan2(Math.sqrt(v),Math.sqrt(Math.max(0,1-v)));
+  }
+
+  function hostedImageUrls(properties){
+    return Object.entries(properties||{})
+      .filter(([field])=>/^image_?url[0-9]*$/i.test(field))
+      .sort(([a],[b])=>Number(a.match(/[0-9]+$/)?.[0]||0)-
+        Number(b.match(/[0-9]+$/)?.[0]||0))
+      .map(([,value])=>directUrl(value))
+      .filter((url,index,list)=>url&&list.indexOf(url)===index);
+  }
+
+  function matchLiveTrafficCameras(publicCameras,liveFeatures){
+    const live=(liveFeatures||[]).filter(isPoint).map(feature=>({
+      coord:feature.geometry.coordinates,
+      name:String(feature.properties?.Location_Name||
+        feature.properties?.location_name||""),
+      urls:hostedImageUrls(feature.properties)
+    })).filter(feature=>feature.urls.length);
+    const used=new Set(),result=[];
+    for(const camera of publicCameras){
+      const words=cameraNameTokens(camera.name);
+      const matches=live.map((feature,index)=>{
+        if(used.has(index))return null;
+        const metres=cameraDistanceMeters(camera.coord,feature.coord);
+        if(!Number.isFinite(metres)||metres>500)return null;
+        const shared=[...cameraNameTokens(feature.name)]
+          .filter(word=>words.has(word)).length;
+        const confident=(metres<=15&&shared>=1)||
+          (metres<=150&&shared>=2)||(metres<=500&&shared>=3);
+        return confident?{feature,index,metres,shared,
+          score:shared*100-Math.min(metres,500)}:null;
+      }).filter(Boolean).sort((a,b)=>b.score-a.score);
+      const best=matches[0];
+      if(best&&(!matches[1]||best.score-matches[1].score>=15)){
+        used.add(best.index);
+        result.push({...camera,urls:best.feature.urls,
+          liveMatched:true,
+          matchMetres:Math.round(best.metres)});
+      }else result.push({...camera,liveMatched:false});
+    }
+    return result;
+  }
+
   async function candidatesFor(source) {
     const sdk=window.MAPPING_ARCGIS;
     if(source.key==="tmr") {
@@ -135,17 +196,41 @@
         sourceNote="Official TMR state-road camera fallback; source image-update times are not supplied.";
       }
       if(!Array.isArray(geojson?.features))throw new Error("TMR fallback returned no GeoJSON features.");
-      return geojson.features.filter(isPoint)
-        .filter(f=>within(f.geometry.coordinates,bounds))
-        .map(f=>({
+      const cameras=geojson.features.filter(isPoint)
+        .filter(feature=>within(feature.geometry.coordinates,bounds))
+        .map(feature=>({
           source:source.key,sourceName:source.label,
-          name:String(f.properties?.description||f.properties?.locality||"TMR camera"),
-          coord:f.geometry.coordinates,
-          timestamp:"",
+          name:String(feature.properties?.description||
+            feature.properties?.locality||"TMR camera"),
+          coord:feature.geometry.coordinates,timestamp:"",
           sourceNote,
-          urls:[directUrl(f.properties?.image_url)].filter(Boolean)
-        }))
-        .filter(f=>f.urls.length).slice(0,2);
+          urls:[directUrl(feature.properties?.image_url)].filter(Boolean)
+        }));
+      let candidates=cameras,liveNote="";
+      if(sdk?.queryCameraLayer){
+        try{
+          const response=await timeout(sdk.queryCameraLayer("floodCameras",bounds),
+            14000,"Signed-in Web Cameras LIVE query");
+          candidates=matchLiveTrafficCameras(cameras,response.features);
+          const count=candidates.filter(camera=>camera.liveMatched).length;
+          liveNote=count+"/"+cameras.length+" public traffic cameras matched"+
+            " to signed-in Web Cameras - LIVE.";
+        }catch(error){
+          liveNote="Signed-in matching unavailable: "+safe(error?.message||error);
+        }
+      }
+      // Prioritise verified live-layer matches. Old public image URLs remain
+      // as diagnostic fallbacks only; no URL is guessed or synthesised.
+      candidates.sort((a,b)=>Number(b.liveMatched)-Number(a.liveMatched));
+      return candidates.filter(camera=>camera.urls.length).slice(0,2)
+        .map(camera=>({
+          ...camera,
+          sourceNote:[sourceNote,liveNote,camera.liveMatched
+            ?"Matched by name and location ("+
+              camera.matchMetres+" m); image URL from Web Cameras - LIVE."
+            :"No confirmed live image match; testing public image URL."]
+            .filter(Boolean).join(" ")
+        }));
     }
     if(!sdk?.queryCameraLayer)throw new Error("ArcGIS session is not ready");
     const convert=(feature,meta)=>{
@@ -245,7 +330,7 @@
     heading.textContent="Traffic-camera image diagnostics";
     imageDiagnosticsEl.appendChild(heading);
     const lead=document.createElement("p");
-    lead.textContent="These are public camera links supplied by TMR. If image bytes cannot be retrieved, the test PDF retains a labelled placeholder.";
+    lead.textContent="TMR camera locations are matched with signed-in Web Cameras - LIVE by name and location where possible. The test prioritises those image URLs rather than the older public links, without guessing or bypassing image access controls.";
     imageDiagnosticsEl.appendChild(lead);
     for(const camera of candidates){
       const row=document.createElement("div");
