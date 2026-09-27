@@ -1,0 +1,48 @@
+name: Camera PDF JavaScript tests
+
+on:
+  push:
+    branches:
+      - main
+      - camera-pdf-production
+    paths:
+      - 'camera-pdf-core.js'
+      - 'camera-pdf-production.js'
+      - 'camera-pdf-probe.js'
+      - 'renderer.js'
+      - 'index.html'
+      - 'tests/camera-pdf.test.cjs'
+      - '.github/workflows/camera-pdf-tests.yml'
+  pull_request:
+    paths:
+      - 'camera-pdf-core.js'
+      - 'camera-pdf-production.js'
+      - 'camera-pdf-probe.js'
+      - 'renderer.js'
+      - 'index.html'
+      - 'tests/camera-pdf.test.cjs'
+      - '.github/workflows/camera-pdf-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  syntax-and-eligibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check production and lab JavaScript syntax
+        run: |
+          node --check camera-pdf-core.js
+          node --check camera-pdf-production.js
+          node --check camera-pdf-probe.js
+          node --check renderer.js
+          node --check app.js
+          node --check config.js
+          node --check arcgis-auth.js
+      - name: Test eligibility, source matching, page layout, links and cancellation
+        run: node --test tests/camera-pdf.test.cjs

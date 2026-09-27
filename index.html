@@ -23,7 +23,7 @@
       } catch {}
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260927-browser27">
+  <link rel="stylesheet" href="styles.css?v=20260928-camera-report1">
   <link rel="stylesheet" href="auth.css?v=20260927-browser27">
 </head>
 <body>
@@ -180,6 +180,20 @@
           <div class="panel-scope"><span id="cameraStatus" class="mini-chip">Generate to analyse</span></div>
         </div>
         <div class="panel-body">
+          <div class="camera-report-controls" aria-label="Camera situation report">
+            <div class="camera-report-actions">
+              <button id="generateCameraPdf" class="primary" type="button" disabled>Generate Camera PDF</button>
+              <button id="cancelCameraPdf" type="button" hidden>Cancel PDF</button>
+              <span class="camera-report-label">Separate, on-demand landscape A4 Camera Situation Report</span>
+            </div>
+            <progress id="cameraPdfProgress" class="camera-report-progress" value="0" max="1" hidden></progress>
+            <p id="cameraPdfStatus" class="camera-note" role="status" aria-live="polite">
+              Generate warning maps to prepare a camera situation report.
+            </p>
+            <p class="camera-note">Only successfully retrieved photographs appear in this PDF.
+              Verified photographs older than 60 minutes are excluded; unknown capture
+              times are explicitly labelled. Downloads occur only when this button is pressed.</p>
+          </div>
           <div class="camera-pdf-entry">
             <a id="cameraPdfLabLauncher" class="camera-pdf-launch" href="?cameraPdfTest=1#cameraPdfLab">
               Open camera PDF test
@@ -290,7 +304,9 @@
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
   <script type="module" src="arcgis-auth.js?v=20260927-browser28"></script>
   <script src="app.js?v=20260927-browser27"></script>
-  <script src="renderer.js?v=20260927-browser28"></script>
-  <script src="camera-pdf-probe.js?v=20260927-lab5"></script>
+  <script src="camera-pdf-core.js?v=20260928-camera-report1"></script>
+  <script src="camera-pdf-production.js?v=20260928-camera-report1"></script>
+  <script src="renderer.js?v=20260928-camera-report1"></script>
+  <script src="camera-pdf-probe.js?v=20260928-lab6"></script>
 </body>
 </html>
