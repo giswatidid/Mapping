@@ -153,7 +153,14 @@ open the same page with `?cameraPdfTest=1` to display a separate test-only
    image update timestamp. Browser permissions to retrieve the images must still
    be tested. The test attempts
    to retrieve actual image bytes (not merely display a camera link) and
-   reports per-source successes, failures and elapsed time. No credentials,
+   reports per-source successes, failures and elapsed time. For TMR traffic
+   cameras that cannot be fetched as image bytes, it additionally tests
+   whether the browser can display the original camera URL at all. Distinct
+   results distinguish a likely cross-origin embedding restriction from a
+   blocked/unreachable image host. An **Open camera image** link lets the
+   operator check the official public image directly. This test does not
+   bypass CORS or introduce an image proxy; inaccessible cameras retain
+   labelled placeholders in the PDF. No credentials,
    private service URLs or image bytes are logged or sent to GitHub.
 2. **Generate sample PDF** produces a local landscape A4 PDF with an
    illustrative geographic overview map on page one, clickable numbered

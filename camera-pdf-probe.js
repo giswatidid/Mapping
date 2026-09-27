@@ -33,6 +33,7 @@
   const countSelect = document.getElementById("cameraPdfProbeCount");
   const summary = document.getElementById("cameraPdfProbeSummary");
   const resultsEl = document.getElementById("cameraPdfProbeResults");
+  const imageDiagnosticsEl = document.getElementById("cameraPdfProbeImageDiagnostics");
   let selected = [];
   let busy = false;
 
@@ -194,6 +195,81 @@
     return blob;
   }
 
+  function displayImageWithoutEmbedding(url) {
+    return new Promise((resolve) => {
+      const image = new Image();
+      let settled = false;
+      const finish=(displayed)=>{
+        if(settled)return;
+        settled=true;
+        clearTimeout(timer);
+        image.onload=null;
+        image.onerror=null;
+        resolve(displayed);
+      };
+      const timer=setTimeout(()=>finish(false),7000);
+      image.onload=()=>finish(true);
+      image.onerror=()=>finish(false);
+      // A normal image element can sometimes display a public cross-origin
+      // photo that fetch()/canvas are prohibited from reading. No image is
+      // drawn to canvas or sent anywhere; this is a diagnostic only.
+      image.src=url;
+    });
+  }
+
+  async function diagnoseTrafficImage(camera, originalError) {
+    const raw=camera.urls?.[0];
+    if(!raw)return "No image URL supplied by the TMR service.";
+    let hostname="unknown host",protocol="";
+    try{
+      const url=new URL(raw);
+      hostname=url.hostname.slice(0,80);
+      protocol=url.protocol;
+    }catch{}
+    if(protocol==="http:") {
+      return "TMR image URL uses HTTP, which an HTTPS page may block. Image host: "+hostname+".";
+    }
+    const displayed=await displayImageWithoutEmbedding(raw);
+    return displayed
+      ? "Image displays in a browser tab but cross-origin byte access is blocked. Cannot embed it without source CORS permission. Host: "+hostname+"."
+      : "The browser cannot retrieve or display this image (network, access or camera outage). Host: "+hostname+".";
+  }
+
+  function renderTrafficImageDiagnostics() {
+    if(!imageDiagnosticsEl)return;
+    const candidates=selected.filter((camera)=>camera.source==="tmr");
+    imageDiagnosticsEl.innerHTML="";
+    imageDiagnosticsEl.hidden=!candidates.length;
+    if(!candidates.length)return;
+    const heading=document.createElement("h3");
+    heading.textContent="Traffic-camera image diagnostics";
+    imageDiagnosticsEl.appendChild(heading);
+    const lead=document.createElement("p");
+    lead.textContent="These are public camera links supplied by TMR. If image bytes cannot be retrieved, the test PDF retains a labelled placeholder.";
+    imageDiagnosticsEl.appendChild(lead);
+    for(const camera of candidates){
+      const row=document.createElement("div");
+      row.className="camera-lab-image-row";
+      const label=document.createElement("strong");
+      label.textContent=camera.name;
+      const detail=document.createElement("span");
+      detail.textContent=camera.imageOk
+        ? "Image bytes retrieved and ready to embed."
+        : camera.diagnostic || camera.error || "Image unavailable";
+      row.append(label,detail);
+      const url=camera.urls?.[0];
+      if(url){
+        const link=document.createElement("a");
+        link.href=url;
+        link.target="_blank";
+        link.rel="noopener noreferrer";
+        link.textContent="Open camera image";
+        row.appendChild(link);
+      }
+      imageDiagnosticsEl.appendChild(row);
+    }
+  }
+
   async function readImage(camera) {
     const started=performance.now();
     if(camera.source==="bccResilience") {
@@ -218,6 +294,10 @@
         return {blob,ms:Math.round(performance.now()-started)};
       } catch(err){failure=err;}
     }
+    if(camera.source==="tmr") {
+      camera.diagnostic=await diagnoseTrafficImage(camera,failure);
+      throw new Error(camera.diagnostic);
+    }
     throw new Error("Image retrieval failed (possibly CORS or access): "+
       safe(failure?.message||"unknown"));
   }
@@ -225,6 +305,7 @@
   async function runProbe() {
     if(busy)return;
     selected=[];sourceResults.clear();drawResults();
+    if(imageDiagnosticsEl){imageDiagnosticsEl.hidden=true;imageDiagnosticsEl.innerHTML="";}
     pdfButton.disabled=true;
     updateBusy(true);
     summary.textContent="Testing up to two cameras from each source. No warning or JPEG generation is required.";
@@ -266,6 +347,7 @@
     }));
     // Keep source ordering stable even when async requests finish arbitrarily.
     selected=sources.flatMap(source=>selected.filter(c=>c.source===source.key));
+    renderTrafficImageDiagnostics();
     const total=selected.length;
     const embedded=selected.filter(c=>c.imageOk).length;
     const sec=((performance.now()-allStart)/1000).toFixed(1);

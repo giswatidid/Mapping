@@ -938,3 +938,22 @@ main { display: grid; gap: 10px; }
   text-decoration: none;
 }
 .camera-pdf-launch:hover { background: #9b2025; color: white; }
+
+
+/* Opt-in TMR traffic-image diagnostics. No photo bytes are stored here. */
+.camera-lab-image-details[hidden] { display:none !important; }
+.camera-lab-image-details { margin-top:14px; }
+.camera-lab-image-details h3 { font-size:.92rem; margin-bottom:6px; }
+.camera-lab-image-details p { font-size:.78rem; color:var(--muted); }
+.camera-lab-image-row {
+  display:flex;
+  align-items:flex-start;
+  gap:8px 12px;
+  flex-wrap:wrap;
+  padding:9px 0;
+  font-size:.8rem;
+  border-top:1px solid var(--line);
+}
+.camera-lab-image-row strong { flex:0 0 220px; }
+.camera-lab-image-row span { flex:1 1 300px; overflow-wrap:anywhere; }
+.camera-lab-image-row a { font-size:.79rem; }
