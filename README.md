@@ -108,7 +108,10 @@ On **Severe Thunderstorm** and **Severe Weather**, the browser lists matching
 cameras from three independent sources in the **Cameras in warning area** panel:
 
 - **TMR traffic cameras**: public QLDTraffic `/v1/webcams` GeoJSON with
-  `image_url` links, using the official published developer API key.
+  `image_url` links, using the official published developer API key. If this
+  API fails on a restricted network, the browser tries the separate public
+  Queensland Government StateRoadInformation MapServer layer 4, via anonymous
+  ArcGIS request. Image freshness is not established by that fallback.
 - **TMR flood cameras**: authenticated ArcGIS FeatureServer layer 0,
   `Flood Cameras` in service `Web Cameras - LIVE`, with `Location_Name`
   and `Image_Url` / numbered `Image_Url` fields. Valid links are listed
@@ -143,14 +146,24 @@ open the same page with `?cameraPdfTest=1` to display a separate test-only
 1. **Test camera image retrieval** selects up to two sample cameras from
    each of the existing TMR traffic, TMR flood and BCC resilience sources.
    South East Queensland is the initial test region; flood cameras fall back
-   to a statewide lookup if no local samples are found. The test attempts
+   to a statewide lookup if no local samples are found. If the QLDTraffic API
+   is blocked, the app queries Queensland Government's public
+   **StateRoadInformation MapServer/4** traffic-camera layer anonymously through
+   the ArcGIS SDK. That fallback exposes camera locations and image URLs but no
+   image update timestamp. Browser permissions to retrieve the images must still
+   be tested. The test attempts
    to retrieve actual image bytes (not merely display a camera link) and
    reports per-source successes, failures and elapsed time. No credentials,
    private service URLs or image bytes are logged or sent to GitHub.
 2. **Generate sample PDF** produces a local landscape A4 PDF with an
    illustrative geographic overview map on page one, clickable numbered
-   camera markers, and six snapshot tiles per subsequent page. Available
-   images are embedded as JPEGs; failed images are explicit placeholders.
+   camera markers and six snapshot tiles arranged in **three columns by two
+   rows** per subsequent page. Nearby camera pins are separated using small
+   leader lines; intentional test-only layout repeats do not create duplicate
+   map pins. Available images are embedded as JPEGs; failed images are explicit
+   placeholders. Source update timestamps are converted to AEST where possible,
+   and are displayed separately from the actual image retrieval time. An
+   update timestamp must not be interpreted as a verified image capture time.
    A signed-in ArcGIS Topographic basemap is attempted but is optional.
    The PDF is labelled `TEST ONLY` and is not a weather-warning product.
    It has internal map/page and page/map navigation.

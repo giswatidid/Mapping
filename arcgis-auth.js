@@ -780,6 +780,44 @@ async function resolveCameraLayer(key) {
   }
 }
 
+async function queryPublicTrafficCameraLayer(extent) {
+  const endpoint = window.MAPPING_CONFIG?.publicSources?.trafficCameraFallback;
+  if (!endpoint) throw new Error("Public TMR camera fallback is not configured.");
+  const bounds = Array.isArray(extent)
+    ? extent
+    : [extent.xmin, extent.ymin, extent.xmax, extent.ymax];
+  if (bounds.length !== 4 || !bounds.every(Number.isFinite)) {
+    throw new Error("Invalid traffic-camera query extent.");
+  }
+  // Explicit anonymous mode: never send the private organisation OAuth
+  // credentials to Queensland Government's public spatial service.
+  const response = await esriRequest(endpoint.replace(/\/$/, "") + "/query", {
+    responseType: "json",
+    authMode: "anonymous",
+    query: {
+      where: "1=1",
+      outFields: "objectid,camera_id,description,direction,district,locality,postcode,image_url",
+      returnGeometry: true,
+      f: "geojson",
+      outSR: 4326,
+      geometry: bounds.join(","),
+      geometryType: "esriGeometryEnvelope",
+      inSR: 4326,
+      spatialRel: "esriSpatialRelIntersects",
+      resultRecordCount: 2000
+    }
+  });
+  const result = response?.data || {};
+  if (result.error) throw new Error(result.error.message || "TMR fallback query failed.");
+  if (result.type !== "FeatureCollection" || !Array.isArray(result.features)) {
+    throw new Error("TMR fallback did not return GeoJSON.");
+  }
+  if (result.exceededTransferLimit) {
+    throw new Error("TMR fallback camera results were truncated.");
+  }
+  return result;
+}
+
 async function queryCameraLayer(key, extent) {
   const layer = await resolveCameraLayer(key);
   const bounds = Array.isArray(extent)
@@ -1617,6 +1655,9 @@ async function showApp() {
     resolveAdministrativeLayers: resolveAllAdministrativeLayers,
     queryCameraLayer(key, extent) {
       return queryCameraLayer(key, extent);
+    },
+    queryPublicTrafficCameraLayer(extent) {
+      return queryPublicTrafficCameraLayer(extent);
     },
     fetchCameraAttachment(key, objectId) {
       return fetchCameraAttachment(key, objectId);

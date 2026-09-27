@@ -43,6 +43,23 @@
     timeZone:"Australia/Brisbane",hour:"2-digit",minute:"2-digit",
     day:"2-digit",month:"short",year:"numeric"
   })+" AEST";
+  function sourceUpdateAest(value) {
+    if(value==null||String(value).trim()==="")return "";
+    let milliseconds;
+    const raw=String(value).trim();
+    if(/^\d{10,13}$/.test(raw)){
+      milliseconds=Number(raw)*(raw.length===10?1000:1);
+    }else if(/^\d{4}-\d\d-\d\d(?:[T ]|$)/.test(raw)){
+      milliseconds=Date.parse(raw);
+    }else{
+      return ""; // Do not guess the timezone of ambiguous source text.
+    }
+    const date=new Date(milliseconds);
+    if(!Number.isFinite(date.getTime())||date.getUTCFullYear()<2000||
+       date.getUTCFullYear()>2100)return "";
+    return nowAest(date);
+  }
+
   const isPoint = (feature) => feature?.geometry?.type==="Point" &&
     Array.isArray(feature.geometry.coordinates) &&
     feature.geometry.coordinates.length >= 2;
@@ -103,10 +120,20 @@
     if(source.key==="tmr") {
       const url=window.MAPPING_CONFIG?.publicSources?.trafficCameras;
       if(!url)throw new Error("Public TMR camera feed is not configured");
-      const res=await timeout(fetch(url,{cache:"no-store"}),12000,"TMR feed");
-      if(!res.ok)throw new Error("TMR feed returned HTTP "+res.status);
-      const geojson=await res.json();
-      if(!Array.isArray(geojson?.features))throw new Error("TMR did not return GeoJSON");
+      let geojson;
+      let sourceNote="";
+      try {
+        const res=await timeout(fetch(url,{cache:"no-store"}),10000,"TMR feed");
+        if(!res.ok)throw new Error("TMR feed returned HTTP "+res.status);
+        geojson=await res.json();
+        if(!Array.isArray(geojson?.features))throw new Error("TMR did not return GeoJSON");
+      } catch(primaryError) {
+        if(!sdk?.queryPublicTrafficCameraLayer)throw primaryError;
+        geojson=await timeout(sdk.queryPublicTrafficCameraLayer(bounds),
+          14000,"Queensland Government state-road camera fallback");
+        sourceNote="Official TMR state-road camera fallback; source image-update times are not supplied.";
+      }
+      if(!Array.isArray(geojson?.features))throw new Error("TMR fallback returned no GeoJSON features.");
       return geojson.features.filter(isPoint)
         .filter(f=>within(f.geometry.coordinates,bounds))
         .map(f=>({
@@ -114,6 +141,7 @@
           name:String(f.properties?.description||f.properties?.locality||"TMR camera"),
           coord:f.geometry.coordinates,
           timestamp:"",
+          sourceNote,
           urls:[directUrl(f.properties?.image_url)].filter(Boolean)
         }))
         .filter(f=>f.urls.length).slice(0,2);
@@ -227,7 +255,8 @@
             good?"Partial":"Image unavailable",
           candidates:cameras.length,images:good,
           elapsed:((performance.now()-started)/1000).toFixed(1),
-          note:fail.map(c=>c.name+": "+c.error).join("; ").slice(0,200)
+          note:[cameras[0]?.sourceNote||"",...fail.map(c=>c.name+": "+c.error)]
+            .filter(Boolean).join("; ").slice(0,220)
         });
       }catch(err){
         updateResult(source.key,{status:"Unavailable",candidates:0,images:0,
@@ -359,6 +388,53 @@
     });
   }
 
+  function layoutCameraMarkers(cameras,extent,frame) {
+    const margin=6,minGap=10.5;
+    const placed=[];
+    const available=cameras.map((camera,index)=>({camera,index}))
+      .filter(({camera})=>!camera.repeated &&
+        Array.isArray(camera.coord) && camera.coord.length>=2);
+    for(const entry of available) {
+      const [rawX,rawY]=positionOnMap(entry.camera.coord,extent,
+        frame.x,frame.y,frame.w,frame.h);
+      if(!Number.isFinite(rawX)||!Number.isFinite(rawY)||
+         rawX<frame.x||rawX>frame.x+frame.w||
+         rawY<frame.y||rawY>frame.y+frame.h)continue;
+      let chosen=null;
+      const valid=(px,py)=>px>=frame.x+margin&&px<=frame.x+frame.w-margin&&
+        py>=frame.y+margin&&py<=frame.y+frame.h-margin&&
+        placed.every(({x,y})=>Math.hypot(px-x,py-y)>=minGap);
+
+      // Rings are tested around the real coordinate, not around a displaced
+      // neighbour. A leader joins each offset pin to its real map position.
+      for(let ring=0;ring<=14&&!chosen;ring++){
+        const positions=ring===0?1:8*ring;
+        for(let slot=0;slot<positions;slot++){
+          const angle=2*Math.PI*slot/positions+ring*0.19;
+          const radius=ring*12;
+          const px=rawX+Math.cos(angle)*radius;
+          const py=rawY+Math.sin(angle)*radius;
+          if(valid(px,py)){chosen={x:px,y:py};break;}
+        }
+      }
+      if(!chosen){
+        // At extreme cluster density, search all free map grid cells.
+        // This keeps every unique numbered camera accessible in the PDF.
+        const candidates=[];
+        for(let py=frame.y+margin;py<=frame.y+frame.h-margin;py+=minGap){
+          for(let px=frame.x+margin;px<=frame.x+frame.w-margin;px+=minGap){
+            if(valid(px,py))candidates.push({x:px,y:py,
+              distance:Math.hypot(px-rawX,py-rawY)});
+          }
+        }
+        candidates.sort((a,b)=>a.distance-b.distance);
+        chosen=candidates[0]||null;
+      }
+      if(chosen)placed.push({...entry,rawX,rawY,...chosen});
+    }
+    return placed;
+  }
+
   function drawMiniMap(doc,cameras,extent,basemap) {
     const x=12,y=33,w=220,h=151;
     doc.setDrawColor(180,186,191);
@@ -376,60 +452,79 @@
       doc.setFontSize(10);doc.setTextColor(110);
       doc.text("Basemap unavailable - geographic test grid",x+6,y+8);
     }
-    cameras.forEach((camera,index)=>{
-      const [cx,cy]=positionOnMap(camera.coord,extent,x,y,w,h);
-      if(cx<x||cx>x+w||cy<y||cy>y+h)return;
+    const pins=layoutCameraMarkers(cameras,extent,{x,y,w,h});
+    // Draw leader lines first, then the markers and their separate PDF links.
+    pins.forEach(({x:cx,y:cy,rawX,rawY})=>{
+      if(Math.hypot(cx-rawX,cy-rawY)>6){
+        doc.setDrawColor(123,67,67);
+        doc.setLineWidth(.28);
+        doc.line(rawX,rawY,cx,cy);
+      }
+    });
+    pins.forEach(({x:cx,y:cy,index})=>{
       doc.setFillColor(194,36,43);
       doc.setDrawColor(255,255,255);
-      doc.circle(cx,cy,4.5,"FD");
-      doc.setFont("helvetica","bold");doc.setFontSize(8);doc.setTextColor(255);
-      doc.text(String(index+1),cx,cy+2.6,{align:"center"});
+      doc.circle(cx,cy,4.6,"FD");
+      doc.setFont("helvetica","bold");
+      doc.setFontSize(index>=99?6.5:index>=9?7:8);
+      doc.setTextColor(255);
+      doc.text(String(index+1),cx,cy+2.4,{align:"center"});
       const page=2+Math.floor(index/6);
       doc.link(cx-5,cy-5,10,10,{pageNumber:page});
     });
   }
 
   function drawCameraPage(doc,cameras,offset,total) {
-    const x0=10, y0=28, cellW=136,cellH=57,gapX=5,gapY=2;
+    const x0=9,y0=28,cellW=90,cellH=83,gapX=4,gapY=4;
     doc.setTextColor(32);doc.setFont("helvetica","bold");doc.setFontSize(15);
     doc.text("Camera snapshots - TEST ONLY",10,13);
     doc.setFont("helvetica","normal");doc.setFontSize(9);
-    doc.text("Six per page | Captured on request | Source timestamps shown if available",10,20);
+    doc.text("Six per page | Source update and retrieval times shown separately",10,20);
     doc.setDrawColor(205,210,215);
     for(let local=0;local<6;local++){
       const index=offset+local,cam=cameras[index];
-      const col=local%2,row=Math.floor(local/2);
+      const col=local%3,row=Math.floor(local/3);
       const x=x0+col*(cellW+gapX),y=y0+row*(cellH+gapY);
       doc.setFillColor(251,251,251);
       doc.roundedRect(x,y,cellW,cellH,2,2,"FD");
-      if(!cam){doc.setTextColor(170);doc.setFontSize(10);
-        doc.text("No camera selected",x+5,y+27);continue;}
-      doc.setTextColor(42);
-      doc.setFont("helvetica","bold");doc.setFontSize(8.8);
-      const line=doc.splitTextToSize((index+1)+". "+cam.name,cellW-10).slice(0,2);
-      doc.text(line,x+4,y+6);
-      doc.setFont("helvetica","normal");doc.setFontSize(7.5);
-      const time=cam.timestamp?"Source update: "+String(cam.timestamp):
-        "Retrieved: "+nowAest(cam.retrievedAt);
-      doc.text(cam.sourceName+" | "+time.slice(0,62),x+4,y+14);
-      const frame={x:x+4,y:y+18,w:cellW-8,h:cellH-24};
-      if(cam.pdfImage) {
-        const ratio=Math.min(frame.w/cam.pdfImage.width,frame.h/cam.pdfImage.height);
+      if(!cam){
+        doc.setTextColor(170);doc.setFontSize(10);
+        doc.text("No camera selected",x+5,y+40);
+        continue;
+      }
+      doc.setTextColor(42);doc.setFont("helvetica","bold");doc.setFontSize(8.2);
+      const lines=doc.splitTextToSize((index+1)+". "+cam.name,cellW-7).slice(0,2);
+      doc.text(lines,x+3,y+6);
+      doc.setFont("helvetica","normal");doc.setFontSize(7.15);
+      doc.setTextColor(73);
+      doc.text(doc.splitTextToSize(cam.sourceName,cellW-6)[0],x+3,y+15);
+      const sourceTime=sourceUpdateAest(cam.timestamp);
+      doc.text("Source updated: "+(sourceTime||"not supplied"),x+3,y+19);
+      doc.text((cam.pdfImage&&cam.imageOk?"Retrieved: ":"Attempted: ")+
+        nowAest(cam.retrievedAt),x+3,y+23);
+      const frame={x:x+3,y:y+28,w:cellW-6,h:cellH-32};
+      if(cam.pdfImage){
+        const ratio=Math.min(frame.w/cam.pdfImage.width,
+          frame.h/cam.pdfImage.height);
         const iw=cam.pdfImage.width*ratio,ih=cam.pdfImage.height*ratio;
         doc.addImage(cam.pdfImage.data,"JPEG",
           frame.x+(frame.w-iw)/2,frame.y+(frame.h-ih)/2,iw,ih);
-      } else {
+      }else{
         doc.setFillColor(242,244,245);
         doc.rect(frame.x,frame.y,frame.w,frame.h,"F");
         doc.setTextColor(117);doc.setFontSize(9);
-        doc.text("Image unavailable",x+cellW/2,frame.y+frame.h/2,{align:"center"});
+        doc.text("Image unavailable",x+cellW/2,
+          frame.y+frame.h/2,{align:"center"});
       }
     }
     doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(90);
     doc.text("Back to numbered map",10,207);
+    doc.setFontSize(7);doc.setTextColor(102);
+    doc.text("Source update is not a verified image capture time.",
+      148,207,{align:"center"});
     doc.link(10,201,50,8,{pageNumber:1});
     doc.text("Page "+doc.internal.getCurrentPageInfo().pageNumber+" of "+total,
-      280,207,{align:"right"});
+      286,207,{align:"right"});
   }
 
   async function generateTestPdf() {
@@ -468,16 +563,28 @@
       drawMiniMap(doc,cameras,baseMap.extent,baseMap.image);
       doc.setFontSize(11);doc.setTextColor(55);
       doc.text("Selected cameras",239,35);
-      cameras.slice(0,Math.min(cameras.length,12)).forEach((camera,index)=>{
+      cameras.slice(0,Math.min(cameras.length,10)).forEach((camera,index)=>{
         const y=44+index*10;
         const text=doc.splitTextToSize((index+1)+". "+camera.name,45).slice(0,2);
         doc.setFontSize(7.8);doc.text(text,239,y);
         doc.link(237,y-4,48,9,{pageNumber:2+Math.floor(index/6)});
       });
       doc.setFontSize(8);doc.text(
-        "Red map markers link to snapshot pages. No live image links are used.",
+        "Numbered pins link to snapshot pages; repeat samples do not create duplicate pins.",
         12,195
       );
+      if(cameras.length>10){
+        doc.setFont("helvetica","bold");doc.setFontSize(8);
+        doc.text("Remaining pages",239,148);
+        doc.setFont("helvetica","normal");
+        for(let offset=6;offset<cameras.length;offset+=6){
+          const from=offset+1,to=Math.min(offset+6,cameras.length);
+          const y=155+(offset/6-1)*8;
+          if(y>193)break;
+          doc.text(from+"-"+to+"  Page "+(2+Math.floor(offset/6)),239,y);
+          doc.link(239,y-4,45,7,{pageNumber:2+Math.floor(offset/6)});
+        }
+      }
       const totalPages=1+Math.ceil(cameras.length/6);
       for(let offset=0;offset<cameras.length;offset+=6){
         doc.addPage("a4","landscape");

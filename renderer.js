@@ -525,6 +525,12 @@
       header.append(name,badge);
       group.appendChild(header);
 
+      if (data.note) {
+        const note=document.createElement("p");
+        note.className="camera-source-note";
+        note.textContent=data.note;
+        group.appendChild(note);
+      }
       if (!data.cameras.length) {
         const note=document.createElement("p");
         note.className="camera-source-note";
@@ -593,16 +599,26 @@
     await Promise.allSettled(CAMERA_SOURCES.map(async ({key})=>{
       try {
         let cameras;
+        let sourceNote="";
         if (key==="tmr") {
           if (!publicSources.trafficCameras) throw new Error("No TMR camera feed.");
-          const data=await promiseTimeout(fetchJson(publicSources.trafficCameras),
-            10000,"TMR traffic-camera feed timed out.");
-          if (!Array.isArray(data?.features)) throw new Error("TMR feed returned no features.");
+          let data;
+          try {
+            data=await promiseTimeout(fetchJson(publicSources.trafficCameras),
+              10000,"TMR traffic-camera feed timed out.");
+            if (!Array.isArray(data?.features)) throw new Error("TMR API returned no features.");
+          } catch (apiError) {
+            const sdk=window.MAPPING_ARCGIS;
+            if (!sdk?.queryPublicTrafficCameraLayer) throw apiError;
+            data=await promiseTimeout(sdk.queryPublicTrafficCameraLayer(warning.extent),
+              14000,"TMR state-road camera fallback timed out.");
+            sourceNote="Using TMR state-road camera fallback; image freshness is not supplied by this source.";
+          }
           cameras=data.features.map(normaliseTrafficCamera).filter(Boolean)
             .map((camera)=>({
               ...camera,subtitle:[camera.locality,camera.direction,camera.district]
                 .filter(Boolean).join(" · "),
-              links:[{label:"Latest image",url:camera.imageUrl}]
+              links:[{label:"Camera image",url:camera.imageUrl}]
             }));
         } else {
           const sdk=window.MAPPING_ARCGIS;
@@ -615,7 +631,7 @@
         }
         if (runId!==cameraAnalysisRun) return;
         state[key]={
-          status:"ready",error:"",
+          status:"ready",error:"",note:sourceNote,
           cameras:cameras.filter((camera)=>
             warningMaskContainsPoint(warning.mask,camera.coordinates)
           ).sort((a,b)=>a.description.localeCompare(b.description,"en-AU"))

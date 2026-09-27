@@ -129,6 +129,10 @@ window.MAPPING_CONFIG = {
     // Official QLDTraffic public developer key published by TMR for external
     // developers. It is intentionally public and globally rate-limited.
     trafficCameras: "https://api.qldtraffic.qld.gov.au/v1/webcams?apikey=3e83add325cbb69ac4d8e5bf433d770b",
+    // Official public TMR state-controlled traffic-camera point layer.
+    // Fallback when the public QLDTraffic API is blocked. Image freshness
+    // cannot be inferred from this layer, which has no update-time field.
+    trafficCameraFallback: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Transportation/StateRoadInformation/MapServer/4",
     lga: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdministrativeBoundaries/MapServer/1",
     coastline: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/55",
     stateBorder: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/FoundationData/FeatureServer/5",
