@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - camera-pdf-production
+      - camera-pdf-diagnostic
     paths:
       - 'camera-pdf-core.js'
       - 'camera-pdf-production.js'

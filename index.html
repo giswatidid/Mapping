@@ -196,9 +196,9 @@
           </div>
           <div class="camera-pdf-entry">
             <a id="cameraPdfLabLauncher" class="camera-pdf-launch" href="?cameraPdfTest=1#cameraPdfLab">
-              Open camera PDF test
+              Open camera PDF diagnostics (no warning required)
             </a>
-            <span>Experimental image-retrieval and six-per-page PDF test. Independent of map generation.</span>
+            <span>Test image retrieval, the original sample PDF and the production report with a clearly simulated warning area.</span>
           </div>
           <div id="cameraList" class="camera-list">
             <div class="empty-state camera-empty">Generate a Severe Thunderstorm or Severe Weather map to find traffic cameras inside the warning area.</div>
@@ -228,7 +228,24 @@
               <option value="18">18 slots (layout repeats)</option>
               <option value="36">36 slots (layout repeats)</option>
             </select>
-            <button id="cameraPdfProbePdf" type="button" disabled>2. Generate sample PDF</button>
+            <button id="cameraPdfProbePdf" type="button" disabled>2. Generate original layout-test PDF</button>
+          </div>
+          <div class="camera-report-controls" aria-label="Simulated production report test">
+            <strong>Test the new production report - no live warning required</strong>
+            <p class="camera-note">After testing camera retrieval above, generate a PDF through
+              the production retrieval, freshness-filtering, marker and six-per-page workflow.
+              A synthetic geographic area is used <strong>only</strong> for this opt-in test;
+              its report is marked <strong>TEST ONLY - NOT AN ACTIVE WARNING</strong>.
+              The real warning map generator and Flooding tab are unaffected.</p>
+            <div class="camera-pdf-lab-controls">
+              <button id="cameraPdfProductionTest" type="button" disabled>3. Test production Camera PDF (simulated area)</button>
+              <button id="cameraPdfProductionTestCancel" type="button" hidden>Cancel test</button>
+            </div>
+            <progress id="cameraPdfProductionTestProgress" class="camera-report-progress"
+              value="0" max="1" hidden></progress>
+            <p id="cameraPdfProductionTestStatus" class="camera-note" role="status" aria-live="polite">
+              Run step 1 to discover cameras before testing the production report.
+            </p>
           </div>
           <p id="cameraPdfProbeSummary" class="camera-note" aria-live="polite">
             Test mode is ready. No camera images are fetched until you press the first button.
@@ -243,9 +260,10 @@
             </table>
           </div>
           <section id="cameraPdfProbeImageDiagnostics" class="camera-lab-image-details" hidden aria-live="polite"></section>
-          <p class="camera-note">Only image retrieval and PDF layout are being tested.
-            No active weather warning is assumed. Nothing is sent to GitHub or added to
-            the operational JPEG workflow. PDFs are generated and downloaded in this browser.</p>
+          <p class="camera-note">These opt-in tests check signed-in camera image access,
+            original PDF layout and the production report using a visibly simulated selection
+            area. No active weather warning is assumed. Nothing is uploaded to GitHub or
+            added to the operational JPEG workflow; PDF generation stays in this browser.</p>
         </div>
       </section>
 
@@ -305,8 +323,8 @@
   <script type="module" src="arcgis-auth.js?v=20260927-browser28"></script>
   <script src="app.js?v=20260927-browser27"></script>
   <script src="camera-pdf-core.js?v=20260928-camera-report1"></script>
-  <script src="camera-pdf-production.js?v=20260928-camera-report1"></script>
+  <script src="camera-pdf-production.js?v=20260928-camera-report2"></script>
   <script src="renderer.js?v=20260928-camera-report1"></script>
-  <script src="camera-pdf-probe.js?v=20260928-lab6"></script>
+  <script src="camera-pdf-probe.js?v=20260928-lab7"></script>
 </body>
 </html>

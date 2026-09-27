@@ -15,9 +15,15 @@
   let context = null, work = null, serial = 0;
   const limits = { images: 3, imageTimeout: 12000, attachmentTimeout: 18000 };
 
-  function message(value) { status.textContent = value; }
+  function message(value) {
+    status.textContent = value;
+    // Mirror exactly the same production pipeline into the opt-in diagnostic
+    // lab, without exposing a simulated warning in the ordinary camera panel.
+    work?.onStatus?.(value, progress.value, progress.max, !progress.hidden);
+  }
   function isCurrent(run) {
-    return work === run && context === run.context && !run.controller.signal.aborted;
+    return work === run && (run.diagnostic || context === run.context) &&
+      !run.controller.signal.aborted;
   }
   function assertCurrent(run) {
     if (!isCurrent(run)) throw new DOMException("Report cancelled", "AbortError");
@@ -33,7 +39,10 @@
   // invalidates the old camera list. Late ArcGIS/image responses are discarded.
   function invalidate() {
     ++serial;
-    if (work) work.controller.abort();
+    if (work) {
+      work.controller.abort();
+      work.onStatus?.("Camera PDF cancelled because the warning context changed.", 0, 1, false);
+    }
     work = null;
     context = null;
     progress.hidden = true;
@@ -347,6 +356,11 @@
     const title = "Queensland " + (snapshot.profile.outputTitle ||
       snapshot.profile.label + " Warning") + " - Camera Situation Report";
     drawHeader(doc, title, generatedAt);
+    if (snapshot.diagnostic) {
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+      doc.setTextColor(177, 27, 35);
+      doc.text("SIMULATED TEST AREA - NOT AN ACTIVE WARNING", 12, 28);
+    }
     const frame = { x: 12, y: 32, w: 220, h: 151 };
     doc.setDrawColor(160, 173, 180);
     doc.setFillColor(236, 240, 237);
@@ -374,7 +388,9 @@
     doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
     doc.setTextColor(56);
     doc.setFillColor(242, 119, 34); doc.rect(12, 189, 5, 4, "F");
-    doc.text("Queensland-clipped warning detection pixels", 19, 192.4);
+    doc.text(snapshot.diagnostic
+      ? "Synthetic test selection - NOT a BoM warning"
+      : "Queensland-clipped warning detection pixels", 19, 192.4);
     doc.setFillColor(192, 38, 45); doc.circle(110, 191, 2.6, "F");
     doc.text("Included camera photographs (click number)", 115, 192.4);
     doc.setTextColor(95); doc.setFontSize(7);
@@ -386,9 +402,14 @@
       285, 205, { align: "right" });
   }
 
-  function drawSnapshotPage(doc, cameras, offset, generatedAt, total, title) {
+  function drawSnapshotPage(doc, cameras, offset, generatedAt, total, title, diagnostic=false) {
     doc.setFont("helvetica", "bold"); doc.setFontSize(15);
     doc.setTextColor(30); doc.text(title + " - Camera snapshots", 10, 13);
+    if (diagnostic) {
+      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5);
+      doc.setTextColor(177, 27, 35);
+      doc.text("TEST ONLY - NO ACTIVE WARNING", 286, 13, { align: "right" });
+    }
     doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
     doc.text("Photographs retrieved at report creation, not a live feed. " +
       "Generated: " + core.aest(generatedAt), 10, 20);
@@ -441,10 +462,12 @@
     window.setTimeout(() => URL.revokeObjectURL(url), 120000);
   }
 
-  async function createReport() {
-    if (work || !context?.warning?.active) return;
+  async function createReport(options={}) {
+    const snapshot = options.snapshot || context;
+    if (work || !snapshot?.warning?.active) return;
     const run = {
-      id: ++serial, context, controller: new AbortController()
+      id: ++serial, context: snapshot, controller: new AbortController(),
+      diagnostic: options.diagnostic === true, onStatus: options.onStatus || null
     };
     work = run;
     setBusy(true);
@@ -493,8 +516,8 @@
           failed + " image failures, " + stale + " stale; no PDF created.");
         return;
       }
-      message("Preparing Queensland warning overview and " +
-        ready.length + " embedded photographs…");
+      message("Preparing " + (run.diagnostic ? "simulated TEST" : "Queensland warning") +
+        " overview and " + ready.length + " embedded photographs…");
       const [Ctor, map] = await Promise.all([
         core.ensurePdf(), overview(run.context, ready, run)
       ]);
@@ -521,13 +544,16 @@
         format: "a4", compress: true });
       doc.setProperties({
         title: "Queensland " + title + " - Camera Situation Report",
-        subject: "Warning-area photograph snapshots; not a live camera feed"
+        subject: run.diagnostic
+          ? "SIMULATED TEST AREA - NOT AN ACTIVE WARNING; camera PDF diagnostic"
+          : "Warning-area photograph snapshots; not a live camera feed"
       });
       drawOverviewPage(doc, run.context, eligible, map, generatedAt, total);
       for (let offset = 0; offset < eligible.length; offset += 6) {
         assertCurrent(run);
         doc.addPage("a4", "landscape");
-        drawSnapshotPage(doc, eligible, offset, generatedAt, total, title);
+        drawSnapshotPage(doc, eligible, offset, generatedAt, total, title,
+          run.diagnostic);
         progress.value = candidates.length + 1 + Math.floor(offset / 6);
         message("Constructing PDF page " + (2 + offset / 6) +
           " of " + total + "…");
@@ -542,8 +568,10 @@
       }).replace(/[^0-9]/g, "");
       const prefix = run.context.profile.key === "thunderstorm"
         ? "thunderstorm" : "severe-weather";
-      download(pdf, prefix + "-camera-situation-report-" + formatted + "-AEST.pdf");
-      message("Camera PDF downloaded: " + eligible.length + " photographs in " +
+      download(pdf, (run.diagnostic ? "TEST-SIMULATED-" : "") +
+        prefix + "-camera-situation-report-" + formatted + "-AEST.pdf");
+      message((run.diagnostic ? "SIMULATED TEST - " : "") +
+        "Camera PDF downloaded: " + eligible.length + " photographs in " +
         total + " pages. " + stale + " stale; " + failed +
         " image failures" + (failedSources ? "; " + failedSources +
         " source failures" : "") + ". Image times are labelled individually.");
@@ -560,15 +588,34 @@
     }
   }
 
-  button.addEventListener("click", () => void createReport());
-  cancelButton.addEventListener("click", () => {
+  function cancelReport() {
     if (!work) return;
+    const onStatus = work.onStatus;
     work.controller.abort();
     work = null;
     setBusy(false);
     progress.hidden = true;
-    message("Camera PDF cancelled. JPEG maps and the camera panel are unchanged.");
+    const notice = "Camera PDF cancelled. JPEG maps and the camera panel are unchanged.";
+    message(notice);
+    onStatus?.(notice, 0, 1, false);
+  }
+
+  async function runDiagnostic(snapshot, onStatus) {
+    // The lab is opt-in and only becomes visible through the explicit test
+    // URL. This cannot create a fake production context or alter the renderer.
+    if (document.getElementById("cameraPdfLab")?.hidden !== false)
+      throw new Error("Open the opt-in camera PDF lab first.");
+    if (!snapshot?.diagnostic || !snapshot.warning?.active ||
+        snapshot.profile?.key === "flooding")
+      throw new Error("A labelled synthetic test context is required.");
+    if (work) throw new Error("Another camera PDF is already running.");
+    await createReport({ snapshot, diagnostic: true, onStatus });
+  }
+
+  button.addEventListener("click", () => void createReport());
+  cancelButton.addEventListener("click", cancelReport);
+  window.MAPPING_CAMERA_REPORT = Object.freeze({
+    invalidate, setContext, runDiagnostic, cancel: cancelReport
   });
-  window.MAPPING_CAMERA_REPORT = Object.freeze({ invalidate, setContext });
   invalidate();
 })();

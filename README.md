@@ -247,6 +247,30 @@ The self-contained, browser-generated **landscape A4** report includes:
   large reports index inclusive six-camera snapshot-page ranges so every
   snapshot page remains navigable.
 
+### Testing the production report when there is no live warning
+
+Use the existing [opt-in Camera PDF lab](https://giswatidid.github.io/Mapping/?cameraPdfTest=1#cameraPdfLab).
+After **1. Test camera image retrieval** has found sample cameras, press
+**3. Test production Camera PDF (simulated area)**. This invokes the same
+production image download, verified-image eligibility, map, numbered markers,
+index links and six-camera-per-page PDF code as the real report. The only
+substitution is a **synthetic geographic selection mask** around those sample
+camera locations: no BoM warning is simulated as a real observation and no
+normal JPEG workflow or existing warning detection is altered. The synthetic
+mask is NOT a real Queensland-clipped WMS warning. Every diagnostic page is
+prominently marked **TEST ONLY - NOT AN ACTIVE WARNING**, and the downloaded
+filename starts with `TEST-SIMULATED-`. The test includes only truly
+retrievable image bytes (unlike the original layout-only sample PDF, which
+retains placeholders for diagnostics). Test progress and a separate Cancel
+button appear in the lab; the normal production button stays disabled when
+no real warning has been detected. If all sources are unavailable, no PDF is
+generated. A signed-in browser is required to validate actual authenticated
+image retrieval; no server or proxy is involved.
+
+The existing **2. Generate original layout-test PDF** is preserved for six,
+18 and 36 repeated-slot layout troubleshooting, and is deliberately separate
+from the new end-to-end production test.
+
 The report is a **snapshot, not a live camera feed**. No private ArcGIS
 organisation URL, item ID, token or camera image is persisted in the repo,
 uploaded to another server or sent to GitHub. A signed-in browser must still

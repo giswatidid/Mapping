@@ -34,8 +34,12 @@
   const summary = document.getElementById("cameraPdfProbeSummary");
   const resultsEl = document.getElementById("cameraPdfProbeResults");
   const imageDiagnosticsEl = document.getElementById("cameraPdfProbeImageDiagnostics");
+  const productionTestButton = document.getElementById("cameraPdfProductionTest");
+  const productionTestCancel = document.getElementById("cameraPdfProductionTestCancel");
+  const productionTestStatus = document.getElementById("cameraPdfProductionTestStatus");
+  const productionTestProgress = document.getElementById("cameraPdfProductionTestProgress");
   let selected = [];
-  let busy = false;
+  let busy = false, diagnosticBusy = false;
 
   const safe = (value) => String(value ?? "").replace(/https?:\/\/\S+/gi,"[service]")
     .replace(/([?&](?:key|token|apikey|api_key)=)[^\s&]+/gi,"$1[redacted]")
@@ -111,9 +115,13 @@
   }
   function updateBusy(value) {
     busy=value;
-    runButton.disabled=value;
-    pdfButton.disabled=value||!selected.length;
-    countSelect.disabled=value;
+    runButton.disabled=value||diagnosticBusy;
+    pdfButton.disabled=value||diagnosticBusy||!selected.length;
+    countSelect.disabled=value||diagnosticBusy;
+    if(productionTestButton)
+      productionTestButton.disabled=value||diagnosticBusy||!selected.length;
+    if(productionTestCancel)
+      productionTestCancel.hidden=!diagnosticBusy;
   }
 
   // The public traffic layer provides camera locations but some image URLs
@@ -608,6 +616,99 @@
       summary.textContent="Sample PDF could not be created: "+safe(err?.message||err);
     } finally{updateBusy(false);}
   }
+
+  // Exercise the ACTUAL production retrieval, eligibility, map and PDF
+  // generator without fabricating or rerunning a BoM warning. Candidates are
+  // the real camera records obtained by the existing diagnostic lab above;
+  // only the geographic selection mask is synthetic.
+  function simulatedProductionSnapshot() {
+    const area=geographicBounds(selected);
+    const sourcesState=Object.fromEntries(sources.map(source=>[
+      source.key,{
+        status:sourceResults.get(source.key)?.status==="Unavailable"
+          ?"unavailable":"ready",
+        cameras:[],
+        error:sourceResults.get(source.key)?.note||""
+      }
+    ]));
+    for(const camera of selected) {
+      if(!Array.isArray(camera.coord)||camera.coord.length<2) continue;
+      const shared={
+        description:camera.name, coordinates:[...camera.coord],
+        // Probe source-updated time is NOT a proven image-capture timestamp.
+        verifiedImageTimestamp:null
+      };
+      if(camera.source==="tmr"){
+        sourcesState.tmr.cameras.push({
+          ...shared, id:camera.id||camera.name+camera.coord.join(","),
+          imageUrl:camera.urls?.[0]||""
+        });
+      }else if(camera.source==="floodCameras"){
+        sourcesState.floodCameras.cameras.push({
+          ...shared, objectId:camera.objectId,
+          links:(camera.urls||[]).map((url,index)=>({
+            label:"Image "+(index+1),url
+          }))
+        });
+      }else if(camera.source==="bccResilience"){
+        sourcesState.bccResilience.cameras.push({
+          ...shared, objectId:camera.objectId,
+          hasAttachments:Boolean(camera.hasAttachments)
+        });
+      }
+    }
+    return {
+      diagnostic:true,
+      warning:{
+        active:true,extent:area,
+        mask:{
+          extent:area,width:64,height:64,
+          step:4,gridWidth:16,gridHeight:16,
+          // Explicitly synthetic: never represent as detected warning pixels.
+          visible:new Uint8Array(16*16).fill(1)
+        }
+      },
+      profile:{
+        key:"thunderstorm",label:"Severe Thunderstorm",
+        outputTitle:"Severe Thunderstorm Warning"
+      },
+      sources:sourcesState
+    };
+  }
+
+  async function testProductionReport() {
+    if(busy||diagnosticBusy||!selected.length)return;
+    const sdk=window.MAPPING_CAMERA_REPORT;
+    if(!sdk?.runDiagnostic) {
+      productionTestStatus.textContent="Production report module is unavailable.";
+      return;
+    }
+    diagnosticBusy=true;
+    updateBusy(false);
+    productionTestProgress.hidden=false;
+    productionTestProgress.value=0;
+    productionTestStatus.textContent=
+      "Running the production Camera Situation Report with a SIMULATED test area…";
+    const onStatus=(value,current,max,visible)=>{
+      productionTestStatus.textContent=value;
+      productionTestProgress.hidden=!visible;
+      productionTestProgress.max=Math.max(1,max||1);
+      productionTestProgress.value=current||0;
+    };
+    try {
+      await sdk.runDiagnostic(simulatedProductionSnapshot(),onStatus);
+    }catch(error) {
+      productionTestStatus.textContent="Production report test failed: "+
+        safe(error?.message||error);
+    }finally {
+      diagnosticBusy=false;
+      updateBusy(false);
+    }
+  }
+
+  productionTestButton?.addEventListener("click",()=>void testProductionReport());
+  productionTestCancel?.addEventListener("click",()=>
+    window.MAPPING_CAMERA_REPORT?.cancel?.());
 
   runButton.addEventListener("click",()=>void runProbe());
   pdfButton.addEventListener("click",()=>void generateTestPdf());

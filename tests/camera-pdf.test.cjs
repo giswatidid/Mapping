@@ -123,7 +123,7 @@ function fakeBrowser({ count = 13, stale = false, allCors = false,
   noWarnings = false } = {}) {
   const els = Object.fromEntries(
     ["generateCameraPdf", "cancelCameraPdf", "cameraPdfStatus",
-      "cameraPdfProgress"].map(id => [id, {
+      "cameraPdfProgress", "cameraPdfLab"].map(id => [id, {
         id, hidden: id === "cancelCameraPdf" || id === "cameraPdfProgress",
         textContent: "", value: 0, max: 1, disabled: false, handlers: {},
         addEventListener(name, cb) { this.handlers[name] = cb; }
@@ -306,6 +306,51 @@ test("Flooding/no warning disables production camera report", () => {
   const browser = fakeBrowser({ count: 3, noWarnings: true });
   assert.equal(browser.els.generateCameraPdf.disabled, true);
   assert.equal(browser.pdfs.length, 0);
+});
+
+test("opt-in diagnostic tests the actual production pipeline with NO active warning", async () => {
+  const browser = fakeBrowser({ count: 2, noWarnings: true });
+  assert.equal(browser.els.generateCameraPdf.disabled, true);
+  const messages = [];
+  await browser.root.MAPPING_CAMERA_REPORT.runDiagnostic({
+    diagnostic: true,
+    warning: {
+      active: true, extent: [152.8,-27.7,153.3,-27.3],
+      mask: { visible: new Uint8Array([1,1,1,1]),
+        extent:[152.8,-27.7,153.3,-27.3], width:2,height:2,
+        gridWidth:2,gridHeight:2,step:1 }
+    },
+    profile: { key:"thunderstorm", label:"Severe Thunderstorm",
+      outputTitle:"Severe Thunderstorm Warning" },
+    sources: {
+      tmr: { status:"ready", cameras:[
+        { id:1, description:"Sample camera 1",coordinates:[153,-27.5],
+          imageUrl:"https://images.example/1.jpg" },
+        { id:2, description:"Sample camera 2",coordinates:[153.01,-27.5],
+          imageUrl:"https://images.example/2.jpg" }] },
+      floodCameras: { status:"ready", cameras:[] },
+      bccResilience: { status:"ready", cameras:[] }
+    }
+  }, msg => messages.push(msg));
+  assert.equal(browser.pdfs.length,1);
+  assert.equal(browser.pdfs[0].pages,2);
+  assert.match(browser.written.join(" "),/TEST-SIMULATED-thunderstorm/);
+  assert.ok(browser.pdfs[0].texts.some(t =>
+    String(t).includes("NOT AN ACTIVE WARNING")));
+  assert.ok(messages.some(msg => String(msg).includes("SIMULATED TEST - Camera PDF downloaded:")));
+  assert.equal(browser.els.generateCameraPdf.disabled,true,
+    "Simulated tests may not enable the ordinary production report button");
+});
+
+test("diagnostics reject non-opt-in requests or contexts with no test flag", async () => {
+  const browser=fakeBrowser({count:1,noWarnings:true});
+  await assert.rejects(() => browser.root.MAPPING_CAMERA_REPORT.runDiagnostic(
+    { warning:{ active:true },profile:{key:"thunderstorm"} }),/labelled synthetic/i);
+  browser.els.cameraPdfLab.hidden=true;
+  await assert.rejects(() => browser.root.MAPPING_CAMERA_REPORT.runDiagnostic(
+    { diagnostic:true,warning:{active:true},
+      profile:{key:"thunderstorm"} }),/opt-in camera PDF lab/i);
+  assert.equal(browser.pdfs.length,0);
 });
 
 test("regenerating maps or switching warning tabs invalidates an in-flight PDF", async () => {
