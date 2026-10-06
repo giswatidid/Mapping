@@ -304,7 +304,7 @@ The repository still contains the earlier Python renderer and synthetic tests as
   the old overlay do not re-enable it. A separate edge derived from the native
   yellow thunderstorm warning fill is drawn above radar.
 - Generation time is separate from explicit source observation/issue times.
-  If the registered layer does not supply these, the export says so. Portal
+  Times absent from the registered layer are omitted from the export. Portal
   modification dates and ambiguous timestamps are never substituted.
 - Camera PDFs filter the known TMR "Photo Not Available" graphic using a
   small luminance fingerprint before assigning camera numbers. This match
@@ -321,3 +321,18 @@ The repository still contains the earlier Python renderer and synthetic tests as
 Validation: `node --test tests/*.cjs` covers eligibility, placeholder exclusion
 before numbering, cancellation, pagination/navigation, regional bounds, scale,
 local raster registration and map-frame clipping. Regenerate with an authenticated live warning to confirm the source-specific imagery and timestamps.
+
+
+
+### Consistent JPEG warning outlines and concise footer
+
+Both thunderstorm JPEGs now use the same warning-outline raster, colour and
+stroke width, derived once from their shared warning image and drawn using the
+same map extent. The radar outline remains above radar; on infrastructure it
+is above storm tracking and below outage/road symbols.
+
+Footers retain generation time, source credits and required basemap attribution.
+Explicit observation/issue timestamps are included only when available; absent
+or ambiguous times produce no placeholder text or empty row. Infrastructure
+maps only show a warning timestamp, since they do not contain radar. Generation
+times use 24-hour AEST, and regional subtitles avoid repeated council suffixes.

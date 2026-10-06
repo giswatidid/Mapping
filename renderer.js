@@ -2049,10 +2049,10 @@
     return project;
   }
 
-  function makeProductCanvas(mapWidth, mapHeight, title, subtitle) {
+  function makeProductCanvas(mapWidth, mapHeight, title, subtitle, footerLineCount=3) {
     const top = 66;
     const legendHeight = 116;
-    const footerHeight = 91;
+    const footerHeight = 21 + 17 * footerLineCount;
     const canvas = document.createElement("canvas");
     canvas.width = mapWidth;
     canvas.height = mapHeight + top + legendHeight + footerHeight;
@@ -2337,7 +2337,7 @@
 
   function sourceTimeText(value) {
     const date = window.MAPPING_CAMERA_PDF_CORE.parseVerifiedImageTimestamp(value);
-    return date ? window.MAPPING_CAMERA_PDF_CORE.aest(date) : "not supplied by source";
+    return date ? window.MAPPING_CAMERA_PDF_CORE.aest(date) : "";
   }
   // Outline the native yellow warning fill, keeping its edge readable above
   // radar without modifying rain-rate colours or inventing warning geometry.
@@ -2438,15 +2438,19 @@
     const warningOutline = profile.key === "thunderstorm"
       ? makeWarningOutline(warningOverlay,mapWidth,mapHeight) : null;
     const locatorBoundary = queenslandBoundary || await loadQueenslandBoundary().catch(() => null);
-    const sourceTimes = "Radar observation: " + sourceTimeText(radarResult?.sourceTime) +
-      " · Warning issue: " + sourceTimeText(warningResult?.sourceTime);
+    const radarTime = sourceTimeText(radarResult?.sourceTime);
+    const warningTime = sourceTimeText(warningResult?.sourceTime);
+    const radarSourceTimes = [radarTime && "Radar observation: " + radarTime,
+      warningTime && "Warning issued: " + warningTime].filter(Boolean).join(" · ");
+    const infrastructureSourceTimes = warningTime ? "Warning issued: " + warningTime : "";
     const basemapAttribution = basemapResult?.attribution
       ? "Basemap: ArcGIS Topographic · " + basemapResult.attribution
       : "Basemap: built-in Queensland context · ArcGIS Topographic unavailable for this signed-in account.";
 
     const selectedLabel = selection?.title || "";
     const regionNames = publicData.affectedLgas || [];
-    const regionText = regionNames.length ? regionNames.slice(0,3).join(" / ") +
+    const regionText = regionNames.length ? regionNames.slice(0,3).map(name => name.replace(/\s+(?:Aboriginal Shire|Regional|Shire|City)$/i,""))
+      .join(" / ") +
       (regionNames.length > 3 ? " and surrounds" : " region") : "Regional context";
     const scopeText = active
       ? (selectedLabel || (regionText + " · current " + profile.activeScopeLabel))
@@ -2458,7 +2462,8 @@
       month: "short",
       year: "numeric",
       hour: "2-digit",
-      minute: "2-digit"
+      minute: "2-digit",
+      hour12: false
     }) + " AEST";
 
     const activeRadarTitle = profile.key === "flooding"
@@ -2472,7 +2477,8 @@
       mapWidth,
       mapHeight,
       active ? activeRadarTitle : "Queensland Statewide Radar",
-      scopeText
+      scopeText,
+      radarSourceTimes ? 4 : 3
     );
     const rctx = radarProduct.ctx;
     rctx.save();
@@ -2495,7 +2501,7 @@
     drawRadarLegend(rctx, radarProduct, active, false, profile);
     drawFooter(rctx, radarProduct, [
       "Generated " + stamp,
-      sourceTimes,
+      ...(radarSourceTimes ? [radarSourceTimes] : []),
       "Sources: Bureau of Meteorology warning/radar via ArcGIS · Queensland Government boundaries.",
       basemapAttribution
     ]);
@@ -2504,7 +2510,8 @@
       mapWidth,
       mapHeight,
       active ? activeInfraTitle : "Queensland Statewide Infrastructure Impacts",
-      scopeText
+      scopeText,
+      infrastructureSourceTimes ? 4 : 3
     );
     const ictx = infraProduct.ctx;
     ictx.save();
@@ -2513,6 +2520,9 @@
     const project = drawContext(ictx, mapWidth, mapHeight, renderExtent, publicData, active, basemapImage);
     ictx.drawImage(warningOverlay, 0, 0, mapWidth, mapHeight);
     if (trackingOverlay) ictx.drawImage(trackingOverlay, 0, 0, mapWidth, mapHeight);
+    // Share the exact same outline canvas, extent, stroke colour and width.
+    // Infrastructure symbols remain above it for operational readability.
+    if (warningOutline) ictx.drawImage(warningOutline,0,0,mapWidth,mapHeight);
     drawOutages(ictx, publicData.outagesNorm || [], project, !active);
     drawRoadConditions(ictx, publicData.roadsNorm || [], project);
     window.MAPPING_CAMERA_PDF_CORE.drawMapAnnotations(ictx,renderExtent,mapWidth,mapHeight,locatorBoundary);
@@ -2527,7 +2537,7 @@
     drawInfrastructureLegend(ictx, infraProduct, active, hasPointOutages, trackingEnabled, profile);
     drawFooter(ictx, infraProduct, [
       "Generated " + stamp,
-      sourceTimes,
+      ...(infrastructureSourceTimes ? [infrastructureSourceTimes] : []),
       "Sources: Bureau of Meteorology warning via ArcGIS · Queensland power outage feed · QLD Traffic · Queensland Government boundaries.",
       basemapAttribution
     ]);
@@ -2718,4 +2728,5 @@
   if (modeEl) modeEl.textContent = currentProfile().label;
   updateWarningSourceDetail();
 })();
+
 

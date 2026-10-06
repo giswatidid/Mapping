@@ -2,7 +2,7 @@
 const test=require('node:test');const assert=require('node:assert/strict');
 const fs=require('node:fs');const vm=require('node:vm');const path=require('node:path');
 const core=require('../camera-pdf-core.js');
-function harness(){
+function harness({radarTime=null,warningTime=null}={}){
   const canvases=[],requests=[];
   const toggle={checked:true};
   class Canvas {
@@ -16,7 +16,7 @@ function harness(){
         fill:()=>{this.ops.push(['fill']);this.mask=true;},fillRect:op('fillRect'),
         strokeRect:op('strokeRect'),arc:op('arc'),fillText:op('fillText'),strokeText:op('strokeText'),
         measureText:t=>({width:t.length*7}),clearRect:op('clearRect'),
-        drawImage:(im,...args)=>{this.image=im;this.tag ||= im.tag || im.image?.tag;this.ops.push(['drawImage',im.tag || im.image?.tag,...args]);},
+        drawImage:(im,...args)=>{this.image=im;this.tag ||= im.tag || im.image?.tag;const entry=['drawImage',im.tag || im.image?.tag,...args];entry.image=im;this.ops.push(entry);},
         getImageData:()=>({data:this.image?.rgba || new Uint8ClampedArray(this.width*this.height*4).fill(this.mask?255:0)}),
         createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:op('putImageData')};
       canvases.push(this);
@@ -30,7 +30,7 @@ function harness(){
       for(let y=Math.floor(height*.3);y<height*.7;y++)for(let x=Math.floor(width*.3);x<width*.7;x++) {
         const i=(y*width+x)*4;rgba[i]=250;rgba[i+1]=210;rgba[i+3]=220;
       }
-      return {blob:{rgba,tag:role==='radar'?'radar':options.sublayerTitles?.[0]==='tracking'?'tracking':'warning'}};
+      return {sourceTime:role==='radar'?radarTime:warningTime,blob:{rgba,tag:role==='radar'?'radar':options.sublayerTitles?.[0]==='tracking'?'tracking':'warning'}};
     }},addEventListener(){}};
   const ctx={window:root,document:{querySelector:s=>s==='#cellTrackingToggle'?toggle:null,
     querySelectorAll:()=>[],createElement:()=>new Canvas()},
@@ -83,8 +83,12 @@ test('both JPEGs clip map layers before drawing and radar omits opaque tracking'
     assert.equal(c.ops[translated+2][0],'rect');
     assert.equal(c.ops[translated+3][0],'clip');
     assert.ok(c.ops.some(op=>op[0]==='fillText' && String(op[1]).includes('Test Region')));
-    assert.ok(c.ops.some(op=>op[0]==='fillText' && String(op[1]).includes('not supplied by source')));
+    assert.ok(!c.ops.some(op=>op[0]==='fillText' && /not supplied|Radar observation:|Warning issued:/.test(String(op[1]))));
   }
+  const outline=canvases.find(c=>c.ops.some(op=>op[0]==='putImageData'));
+  assert.ok(outline);
+  for(const c of maps)assert.equal(c.ops.filter(op=>op[0]==='drawImage' && op.image===outline).length,1);
+  assert.equal(maps[0].height,maps[1].height);
   // Tracking is first composed into its own clipped canvas, which is then
   // drawn only on infrastructure. Track identities rather than helper calls.
   const trackingCanvas=canvases.find(c=>c.ops.some(op=>op[0]==='drawImage' && op[1]==='tracking'));
@@ -95,7 +99,22 @@ test('both JPEGs clip map layers before drawing and radar omits opaque tracking'
 });
 
 test('map timestamps only accept explicit timezone-qualified source times',()=>{
-  const {api}=harness();assert.equal(api.sourceTimeText('latest'),'not supplied by source');
-  assert.equal(api.sourceTimeText('2026-10-06T18:32:00'),'not supplied by source');
+  const {api}=harness();assert.equal(api.sourceTimeText('latest'),'');
+  assert.equal(api.sourceTimeText('2026-10-06T18:32:00'),'');
   assert.match(api.sourceTimeText('2026-10-06T08:32:00Z'),/18:32.*AEST/);
+});
+
+
+
+test('real source times appear only on products containing that source',async()=>{
+  const {api,canvases}=harness({radarTime:'2026-10-06T08:32:00Z',warningTime:'2026-10-06T08:25:00Z'});
+  const profile={key:'thunderstorm',supportsTracking:false,renderSublayerTitles:['warning'],label:'Severe Thunderstorm',outputTitle:'Severe Thunderstorm Warning'};
+  await api.buildProducts([150,-28,152,-26],true,{lga:boundary,outagesNorm:[],roadsNorm:[]},[],profile,null,boundary);
+  const maps=canvases.filter(c=>c.ops.some(op=>op[0]==='translate'));
+  const text=maps.map(c=>c.ops.filter(op=>op[0]==='fillText').map(op=>op[1]).join('\n'));
+  assert.match(text[0],/Radar observation:.*18:32/);
+  assert.match(text[0],/Warning issued:.*18:25/);
+  assert.match(text[1],/Warning issued:.*18:25/);
+  assert.doesNotMatch(text[1],/Radar observation:/);
+  assert.doesNotMatch(text.join('\n'),/not supplied/);
 });
