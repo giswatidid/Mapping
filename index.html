@@ -10,19 +10,6 @@
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png?v=20260921-map1">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png?v=20260921-map1">
   <link rel="shortcut icon" href="favicon.ico?v=20260921-map1">
-  <!-- Remember the test link before the ArcGIS OAuth module can redirect. -->
-  <script>
-    (() => {
-      const mode = new URLSearchParams(location.search).get("cameraPdfTest");
-      try {
-        if (mode === "1") {
-          sessionStorage.setItem("mapping.cameraPdfTest.until", String(Date.now() + 3600000));
-        } else if (mode === "0") {
-          sessionStorage.removeItem("mapping.cameraPdfTest.until");
-        }
-      } catch {}
-    })();
-  </script>
   <link rel="stylesheet" href="styles.css?v=20260928-camera-report1">
   <link rel="stylesheet" href="auth.css?v=20260927-browser27">
 </head>
@@ -194,12 +181,6 @@
               Verified photographs older than 60 minutes are excluded; unknown capture
               times are explicitly labelled. Downloads occur only when this button is pressed.</p>
           </div>
-          <div class="camera-pdf-entry">
-            <a id="cameraPdfLabLauncher" class="camera-pdf-launch" href="?cameraPdfTest=1#cameraPdfLab">
-              Open camera PDF diagnostics (no warning required)
-            </a>
-            <span>Test image retrieval, the original sample PDF and the production report with a clearly simulated warning area.</span>
-          </div>
           <div id="cameraList" class="camera-list">
             <div class="empty-state camera-empty">Generate a Severe Thunderstorm or Severe Weather map to find traffic cameras inside the warning area.</div>
           </div>
@@ -207,65 +188,6 @@
         </div>
       </section>
 
-
-      <!-- Proof-of-concept only. Appears with ?cameraPdfTest=1;
-           it never runs as part of map or ordinary camera generation. -->
-      <section id="cameraPdfLab" class="panel camera-pdf-lab" hidden>
-        <div class="panel-header">
-          <div class="panel-title">
-            <h2>Camera PDF lab <span class="mini-chip">TEST ONLY</span></h2>
-            <a href="?cameraPdfTest=0" class="camera-layer-link">Exit test mode</a>
-            <p>Independent test of image retrieval and six-per-page landscape A4 PDF layout.
-              Uses sample cameras around South East Queensland, not a current warning.</p>
-          </div>
-        </div>
-        <div class="panel-body">
-          <div class="camera-pdf-lab-controls">
-            <button id="cameraPdfProbeRun" type="button">1. Test camera image retrieval</button>
-            <label for="cameraPdfProbeCount">Sample PDF size</label>
-            <select id="cameraPdfProbeCount">
-              <option value="6">6 slots (two pages)</option>
-              <option value="18">18 slots (layout repeats)</option>
-              <option value="36">36 slots (layout repeats)</option>
-            </select>
-            <button id="cameraPdfProbePdf" type="button" disabled>2. Generate original layout-test PDF</button>
-          </div>
-          <div class="camera-report-controls" aria-label="Simulated production report test">
-            <strong>Test the new production report - no live warning required</strong>
-            <p class="camera-note">After testing camera retrieval above, generate a PDF through
-              the production retrieval, freshness-filtering, marker and six-per-page workflow.
-              A synthetic geographic area is used <strong>only</strong> for this opt-in test;
-              its report is marked <strong>TEST ONLY - NOT AN ACTIVE WARNING</strong>.
-              The real warning map generator and Flooding tab are unaffected.</p>
-            <div class="camera-pdf-lab-controls">
-              <button id="cameraPdfProductionTest" type="button" disabled>3. Test production Camera PDF (simulated area)</button>
-              <button id="cameraPdfProductionTestCancel" type="button" hidden>Cancel test</button>
-            </div>
-            <progress id="cameraPdfProductionTestProgress" class="camera-report-progress"
-              value="0" max="1" hidden></progress>
-            <p id="cameraPdfProductionTestStatus" class="camera-note" role="status" aria-live="polite">
-              Run step 1 to discover cameras before testing the production report.
-            </p>
-          </div>
-          <p id="cameraPdfProbeSummary" class="camera-note" aria-live="polite">
-            Test mode is ready. No camera images are fetched until you press the first button.
-          </p>
-          <div class="camera-lab-table-wrap">
-            <table class="camera-lab-table">
-              <thead><tr>
-                <th>Source</th><th>Status</th><th>Cameras</th><th>Images fetched</th>
-                <th>Duration</th><th>Detail</th>
-              </tr></thead>
-              <tbody id="cameraPdfProbeResults"></tbody>
-            </table>
-          </div>
-          <section id="cameraPdfProbeImageDiagnostics" class="camera-lab-image-details" hidden aria-live="polite"></section>
-          <p class="camera-note">These opt-in tests check signed-in camera image access,
-            original PDF layout and the production report using a visibly simulated selection
-            area. No active weather warning is assumed. Nothing is uploaded to GitHub or
-            added to the operational JPEG workflow; PDF generation stays in this browser.</p>
-        </div>
-      </section>
 
       <section id="floodSelectionPanel" class="panel flood-selection-panel" hidden>
         <div class="panel-header">
@@ -325,7 +247,6 @@
   <script src="camera-pdf-core.js?v=20261006-storm-review1"></script>
   <script src="camera-pdf-production.js?v=20261006-storm-review1"></script>
   <script src="renderer.js?v=20261006-storm-review1"></script>
-  <script src="camera-pdf-probe.js?v=20260928-lab7"></script>
 </body>
 </html>
 

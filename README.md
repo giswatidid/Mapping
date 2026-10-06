@@ -137,65 +137,6 @@ independently of JPEG generation; an unavailable camera layer cannot prevent
 either map product from being generated. Camera photos are never automatically
 loaded or drawn onto the JPEGs. The camera panel is hidden on the Flooding tab.
 
-## Camera PDF proof-of-concept test
-
-**Not part of the operational map generator.** After signing in to ArcGIS,
-open the same page with `?cameraPdfTest=1` to display a separate test-only
-**Camera PDF lab**. It does not require an active warning.
-
-1. **Test camera image retrieval** selects up to two sample cameras from
-   each of the existing TMR traffic, TMR flood and BCC resilience sources.
-   South East Queensland is the initial test region; flood cameras fall back
-   to a statewide lookup if no local samples are found. If the QLDTraffic API
-   is blocked, the app queries Queensland Government's public
-   **StateRoadInformation MapServer/4** traffic-camera layer anonymously through
-   the ArcGIS SDK. The test also queries the existing signed-in
-   **Web Cameras - LIVE** ArcGIS layer (which includes both traffic and flood
-   camera photographs), correlates traffic locations by geographic distance
-   and overlapping location-name words, and prioritises current hosted
-   Image_Url fields where the match is unambiguous. Unmatched public
-   cameras retain their original links for diagnostics; no image URL or
-   camera association is guessed. Direct links still require CORS permission
-   for browser-side PDF embedding. The test attempts
-   to retrieve actual image bytes (not merely display a camera link) and
-   reports per-source successes, failures and elapsed time. For TMR traffic
-   cameras that cannot be fetched as image bytes, it additionally tests
-   whether the browser can display the original camera URL at all. Distinct
-   results distinguish a likely cross-origin embedding restriction from a
-   blocked/unreachable image host. An **Open camera image** link lets the
-   operator check the official public image directly. This test does not
-   bypass CORS or introduce an image proxy; inaccessible cameras retain
-   labelled placeholders in the PDF. No credentials,
-   private service URLs or image bytes are logged or sent to GitHub.
-2. **Generate sample PDF** produces a local landscape A4 PDF with an
-   illustrative geographic overview map on page one, clickable numbered
-   camera markers and six snapshot tiles arranged in **three columns by two
-   rows** per subsequent page. Nearby camera pins are separated using small
-   leader lines; intentional test-only layout repeats do not create duplicate
-   map pins. Available images are embedded as JPEGs; failed images are explicit
-   placeholders. Source update timestamps are converted to AEST where possible,
-   and are displayed separately from the actual image retrieval time. An
-   update timestamp must not be interpreted as a verified image capture time.
-   A signed-in ArcGIS Topographic basemap is attempted but is optional.
-   The PDF is labelled `TEST ONLY` and is not a weather-warning product.
-   It has internal map/page and page/map navigation.
-3. For 18- and 36-slot **layout/performance tests**, the same available
-   samples repeat and are marked as layout repeats. This tests document
-   size/layout, **not** retrieval of 18 or 36 unique live cameras.
-
-The test-only PDF library is a **bundled, pinned jsPDF 2.5.2 copy** with
-its upstream licence in `vendor/`. Its UMD entry has a browser-export
-compatibility adjustment to avoid AMD loader collisions in the ArcGIS page.
-The prototype checks that the library can generate a real PDF before proceeding.
-It loads on demand only after pressing
-Generate sample PDF, without requiring a corporate browser to reach a
-third-party PDF CDN. Test mode is remembered for one hour in the same tab
-so that the ArcGIS organisation's OAuth redirect can complete without losing
-it; use **Exit test mode** to clear that flag. The diagnostic lab remains separate from the permanent report and continues
-to test six slots, as well as intentional 18- and 36-slot layout repeats.
-The lab and production report now share strict public/live TMR matching,
-JPEG conversion, marker deconfliction and the bundled AMD-safe jsPDF loader.
-
 ## Production Camera Situation Report (Severe Thunderstorm / Severe Weather)
 
 After **Generate maps** and the independent camera-source queries finish,
@@ -247,29 +188,9 @@ The self-contained, browser-generated **landscape A4** report includes:
   large reports index inclusive six-camera snapshot-page ranges so every
   snapshot page remains navigable.
 
-### Testing the production report when there is no live warning
+### Validation
 
-Use the existing [opt-in Camera PDF lab](https://giswatidid.github.io/Mapping/?cameraPdfTest=1#cameraPdfLab).
-After **1. Test camera image retrieval** has found sample cameras, press
-**3. Test production Camera PDF (simulated area)**. This invokes the same
-production image download, verified-image eligibility, map, numbered markers,
-index links and six-camera-per-page PDF code as the real report. The only
-substitution is a **synthetic geographic selection mask** around those sample
-camera locations: no BoM warning is simulated as a real observation and no
-normal JPEG workflow or existing warning detection is altered. The synthetic
-mask is NOT a real Queensland-clipped WMS warning. Every diagnostic page is
-prominently marked **TEST ONLY - NOT AN ACTIVE WARNING**, and the downloaded
-filename starts with `TEST-SIMULATED-`. The test includes only truly
-retrievable image bytes (unlike the original layout-only sample PDF, which
-retains placeholders for diagnostics). Test progress and a separate Cancel
-button appear in the lab; the normal production button stays disabled when
-no real warning has been detected. If all sources are unavailable, no PDF is
-generated. A signed-in browser is required to validate actual authenticated
-image retrieval; no server or proxy is involved.
-
-The existing **2. Generate original layout-test PDF** is preserved for six,
-18 and 36 repeated-slot layout troubleshooting, and is deliberately separate
-from the new end-to-end production test.
+The camera PDF diagnostic section and test launcher have been removed from the live site. Production camera reports remain available after generating maps with an active warning.
 
 The report is a **snapshot, not a live camera feed**. No private ArcGIS
 organisation URL, item ID, token or camera image is persisted in the repo,
@@ -278,8 +199,6 @@ verify access to each live image source and its CORS settings.
 
 Run the static JavaScript/eligibility/navigation test suite with
 `node --test tests/camera-pdf.test.cjs` (also run in GitHub Actions on push).
-The opt-in `?cameraPdfTest=1#cameraPdfLab` remains available for signed-in
-image retrieval diagnostics and stress-test PDFs.
 
 ## Public infrastructure and reference sources
 
@@ -401,6 +320,4 @@ The repository still contains the earlier Python renderer and synthetic tests as
 
 Validation: `node --test tests/*.cjs` covers eligibility, placeholder exclusion
 before numbering, cancellation, pagination/navigation, regional bounds, scale,
-local raster registration and map-frame clipping. Run the opt-in camera PDF
-lab for browser checks, then regenerate with an authenticated live warning to
-confirm the source-specific imagery and timestamps.
+local raster registration and map-frame clipping. Regenerate with an authenticated live warning to confirm the source-specific imagery and timestamps.
