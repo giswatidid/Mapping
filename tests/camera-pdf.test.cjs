@@ -120,7 +120,7 @@ test("real production code compiles and opt-in lab uses shared primitives", () =
 });
 
 function fakeBrowser({ count = 13, stale = false, allCors = false,
-  noWarnings = false } = {}) {
+  noWarnings = false, placeholder = false } = {}) {
   const els = Object.fromEntries(
     ["generateCameraPdf", "cancelCameraPdf", "cameraPdfStatus",
       "cameraPdfProgress", "cameraPdfLab"].map(id => [id, {
@@ -156,7 +156,12 @@ function fakeBrowser({ count = 13, stale = false, allCors = false,
     output() { return new Blob(["%PDF-1.4 synthetic test"], { type: "application/pdf" }); }
   }
   const baseCore = { ...core,
-    jpegFromBlob: async () => jpg,
+    jpegFromBlob: async blob => {
+      if ((await blob.text()) === "placeholder") {
+        const e = new Error("Photo Not Available");e.code = "PHOTO_UNAVAILABLE";throw e;
+      }
+      return jpg;
+    },
     ensurePdf: async () => FakePDF
   };
   const root = {
@@ -176,7 +181,7 @@ function fakeBrowser({ count = 13, stale = false, allCors = false,
   };
   const fakeCtx = {
     fillRect() {}, drawImage() {}, beginPath() {}, moveTo() {},
-    lineTo() {}, stroke() {}, save() {}, restore() {}
+    lineTo() {}, stroke() {}, save() {}, restore() {}, rect() {}, clip() {}, fillText() {}, strokeRect() {}
   };
   const document = {
     getElementById(id) { return els[id]; },
@@ -203,7 +208,7 @@ function fakeBrowser({ count = 13, stale = false, allCors = false,
     fetch: async url => {
       if (allCors || String(url).includes("blocked"))
         throw new TypeError("CORS blocked");
-      return { ok: true, blob: async () => new Blob(["synthetic image"]) };
+      return { ok: true, blob: async () => new Blob([placeholder && String(url).endsWith("/0.jpg") ? "placeholder" : "synthetic image"]) };
     }
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,
@@ -360,4 +365,53 @@ test("regenerating maps or switching warning tabs invalidates an in-flight PDF",
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(browser.els.generateCameraPdf.disabled, true);
   assert.equal(browser.pdfs.length, 0);
+});
+
+
+test("regional framing supplies context without shrinking a large warning", () => {
+  const small = core.regionalBounds([150.7,-27.1,151.3,-26.5]);
+  const km=(small[2]-small[0])*111.32*Math.cos(-26.8*Math.PI/180);
+  assert.ok(Math.abs(km-180)<.01);
+  assert.ok(small[0]<150.7 && small[1]<-27.1 && small[2]>151.3 && small[3]>-26.5);
+  const large=core.regionalBounds([140,-28,153,-15]);
+  assert.ok(large[0]<140 && large[2]>153 && large[1]<-28 && large[3]>-15);
+});
+
+test("scale bar corrects Web Mercator scale at Queensland latitudes", () => {
+  const extent=core.asWebMercatorExtent([150,-28,152,-26]);
+  for (const lat of [-10,-27,-29]) {
+    const bar=core.scaleBar(extent,1500,lat);
+    assert.ok(bar.pixels<=200 && bar.pixels>50);
+    const actual=bar.pixels*(extent[2]-extent[0])/1500*Math.cos(lat*Math.PI/180)/1000;
+    assert.ok(Math.abs(actual-bar.km)<1e-8);
+  }
+});
+
+test("one through six photos use larger cells and remain inside the PDF page", () => {
+  for(let n=1;n<=6;n++) {
+    const {columns,rows,cellW,cellH}=core.snapshotLayout(n);
+    assert.ok(columns*rows>=n);
+    assert.ok(columns*cellW+(columns-1)*4<=279.001);
+    assert.ok(rows*cellH+(rows-1)*3<=169.001);
+  }
+  assert.ok(core.snapshotLayout(2).cellW>core.snapshotLayout(6).cellW);
+  assert.ok(core.snapshotLayout(3).cellW>core.snapshotLayout(6).cellW);
+});
+
+test("placeholder fingerprint rejects dark, plain white and unrelated images", () => {
+  assert.equal(core.matchesUnavailablePhoto(new Array(768).fill(20)),false);
+  assert.equal(core.matchesUnavailablePhoto(new Array(768).fill(255)),false);
+  assert.equal(core.matchesUnavailablePhoto(Array.from({length:768},(_,i)=>i%256)),false);
+});
+
+
+test("production rejects a placeholder before map numbering and counts it separately", async () => {
+  const browser=fakeBrowser({count:4,placeholder:true});
+  browser.els.generateCameraPdf.handlers.click();
+  await waitFor(()=>browser.written.includes("download"));
+  const pdf=browser.pdfs[0];
+  assert.equal(pdf.images.length,3); // one overview, two usable photos
+  assert.match(browser.els.cameraPdfStatus.textContent,/2 photographs/);
+  assert.match(browser.els.cameraPdfStatus.textContent,/1 placeholders/);
+  assert.ok(pdf.texts.flat().some(t=>String(t).includes("2 camera(s) excluded")));
 });

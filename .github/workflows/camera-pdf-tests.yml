@@ -13,6 +13,9 @@ on:
       - 'renderer.js'
       - 'index.html'
       - 'tests/camera-pdf.test.cjs'
+      - 'tests/renderer.test.cjs'
+      - 'config.js'
+      - 'arcgis-auth.js'
       - '.github/workflows/camera-pdf-tests.yml'
   pull_request:
     paths:
@@ -22,6 +25,9 @@ on:
       - 'renderer.js'
       - 'index.html'
       - 'tests/camera-pdf.test.cjs'
+      - 'tests/renderer.test.cjs'
+      - 'config.js'
+      - 'arcgis-auth.js'
       - '.github/workflows/camera-pdf-tests.yml'
 
 permissions:
@@ -46,4 +52,5 @@ jobs:
           node --check config.js
           node --check arcgis-auth.js
       - name: Test eligibility, source matching, page layout, links and cancellation
-        run: node --test tests/camera-pdf.test.cjs
+        run: node --test tests/*.cjs
+

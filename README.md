@@ -357,3 +357,50 @@ There is **no live scheduled map-generation workflow**.
 ## Legacy Python renderer
 
 The repository still contains the earlier Python renderer and synthetic tests as development/reference code. It is not used for live authenticated ArcGIS map generation.
+
+
+
+### Live-storm export improvements (6 October 2026)
+
+- Regional warning maps now retain at least 180 km of horizontal context and
+  expand larger warning extents by 40% on each side. Both JPEGs share the actual
+  ArcGIS basemap extent. Warning imagery remains clipped to Queensland; the
+  surrounding basemap may show neighbouring states for context.
+- Every map layer is clipped to the map frame before drawing, preventing LGA
+  boundaries, roads, outage geometry and labels from entering the heading or
+  legend. LGA labels are kept inside the frame.
+- Severe thunderstorm and severe weather detection first scans Queensland,
+  then scans the detected region at up to 1600 pixels on the longest side with
+  single-pixel samples. The local WMS image aspect matches its geographic
+  extent. This refined mask drives camera selection, affected-area analysis
+  and the PDF warning approximation. If refinement fails or the warning
+  disappears, generation stops and reports the error; it does not silently use
+  coarse camera selection. Flooding retains its product/component scan.
+- JPEGs and camera overview maps include a latitude-corrected distance scale
+  and a Queensland locator where boundary geometry is available. JPEG subtitles
+  name affected LGAs when known.
+- Original BoM storm tracking is opt-in on the infrastructure map only. It is
+  always omitted from radar maps because its white forecast circles obscure
+  rain returns. The revised preference starts off; existing preferences for
+  the old overlay do not re-enable it. A separate edge derived from the native
+  yellow thunderstorm warning fill is drawn above radar.
+- Generation time is separate from explicit source observation/issue times.
+  If the registered layer does not supply these, the export says so. Portal
+  modification dates and ambiguous timestamps are never substituted.
+- Camera PDFs filter the known TMR "Photo Not Available" graphic using a
+  small luminance fingerprint before assigning camera numbers. This match
+  tolerates ordinary image compression and resizing, and does not reject a
+  photograph merely because it is dark. Other unknown placeholder graphics
+  may require additional reference fingerprints. Camera failures/placeholders
+  and stale images are counted separately in progress; the PDF records the
+  excluded total. Unknown capture times remain explicitly labelled.
+- Snapshot pages adapt for one to six photographs; camera headings and the
+  small-report index wrap. The PDF boundary legend identifies the warning
+  area as a refined raster approximation rather than authoritative vector
+  geometry. Contiguous mask runs are painted together for performance.
+
+Validation: `node --test tests/*.cjs` covers eligibility, placeholder exclusion
+before numbering, cancellation, pagination/navigation, regional bounds, scale,
+local raster registration and map-frame clipping. Run the opt-in camera PDF
+lab for browser checks, then regenerate with an authenticated live warning to
+confirm the source-specific imagery and timestamps.

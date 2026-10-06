@@ -85,9 +85,9 @@
         </div>
         <div class="actions">
           <button id="generateButton" class="primary" type="button" disabled>Generate maps</button>
-          <label id="trackingToggleLabel" class="tracking-toggle" for="cellTrackingToggle" title="Adds storm cell and storm direction overlays from the authenticated warning WMS. Warning extent detection still uses only the severe thunderstorm warning layer.">
+          <label id="trackingToggleLabel" class="tracking-toggle" for="cellTrackingToggle" title="Adds original BoM storm tracking to the infrastructure map only. Radar remains unobscured. Warning detection uses only the warning layer.">
             <input id="cellTrackingToggle" type="checkbox">
-            <span>Include thunderstorm cell tracking</span>
+            <span>Include storm tracking on infrastructure map</span>
           </label>
         </div>
       </div>
@@ -318,13 +318,14 @@
     </footer>
   </div>
 
-  <script src="config.js?v=20260927-browser28"></script>
+  <script src="config.js?v=20261006-storm-review1"></script>
   <script type="module" src="https://js.arcgis.com/5.1/"></script>
-  <script type="module" src="arcgis-auth.js?v=20260927-browser28"></script>
+  <script type="module" src="arcgis-auth.js?v=20261006-storm-review1"></script>
   <script src="app.js?v=20260927-browser27"></script>
-  <script src="camera-pdf-core.js?v=20260928-camera-report1"></script>
-  <script src="camera-pdf-production.js?v=20260928-camera-report2"></script>
-  <script src="renderer.js?v=20260928-camera-report1"></script>
+  <script src="camera-pdf-core.js?v=20261006-storm-review1"></script>
+  <script src="camera-pdf-production.js?v=20261006-storm-review1"></script>
+  <script src="renderer.js?v=20261006-storm-review1"></script>
   <script src="camera-pdf-probe.js?v=20260928-lab7"></script>
 </body>
 </html>
+

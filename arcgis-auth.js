@@ -1008,7 +1008,9 @@ function findSublayerMetadata(value, wantedTitle, seen=new Set()) {
   if ((title === wanted || name === wanted) && value.name) {
     return {
       name: String(value.name),
-      title: String(value.title || wantedTitle)
+      title: String(value.title || wantedTitle),
+      observationTime: value.observationTime || value.radarObservationTime || null,
+      issueTime: value.issueTime || value.warningIssueTime || null
     };
   }
 
@@ -1262,6 +1264,7 @@ async function renderWmsPrintImage(role, extent, width, height, sourceOverride=n
     sublayerName: sublayerNames[0],
     sublayerTitle: resolvedSublayers[0]?.title || metadata?.title || spec.sublayerTitle,
     sublayerNames,
+    sourceTime: role === "radar" ? metadata?.observationTime : metadata?.issueTime,
     sublayerTitles: resolvedSublayers.map((entry) => entry.title),
     diagnostics: {
       usesRegisteredMapUrl: Boolean(requestConfig.mapUrl),
@@ -1764,3 +1767,4 @@ async function init() {
 init().catch((error) => {
   showLogin("ArcGIS authentication could not initialise: " + (error?.message || error), "error");
 });
+

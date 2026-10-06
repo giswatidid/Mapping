@@ -184,20 +184,22 @@
         return { camera, image: { pdfImage, retrievedAt: new Date() } };
       } catch (error) {
         if (run.controller.signal.aborted) throw error;
-        return { reason: "failed", camera };
+        return { reason: error.code === "PHOTO_UNAVAILABLE" ? "placeholder" : "failed", camera };
       }
     }
+    let placeholder = false;
     for (const url of camera.urls) {
       try {
         const image = await fetchUrlAsJpeg(url, run);
         return { camera, image };
       } catch (error) {
         if (run.controller.signal.aborted) throw error;
+        if (error.code === "PHOTO_UNAVAILABLE") placeholder = true;
         // CORS, HTTP 403, mixed-content and decode errors all exclude this
         // URL; only URLs already associated with this very camera are tried.
       }
     }
-    return { reason: "failed", camera };
+    return { reason: placeholder ? "placeholder" : "failed", camera };
   }
 
   async function concurrentMap(items, limit, mapper, settled) {
@@ -231,16 +233,18 @@
       const north = maxLat - (gy * step / mask.height) * (maxLat - minLat);
       const south = maxLat - (Math.min(mask.height, (gy + 1) * step) /
         mask.height) * (maxLat - minLat);
-      for (let gx = 0; gx < mask.gridWidth; gx++) {
-        if (!mask.visible[gy * mask.gridWidth + gx]) continue;
-        const west = minLon + (gx * step / mask.width) * (maxLon - minLon);
-        const east = minLon + (Math.min(mask.width, (gx + 1) * step) /
-          mask.width) * (maxLon - minLon);
-        const nw = core.positionOnMap([west, north], extent, 0, 0, width, height);
-        const se = core.positionOnMap([east, south], extent, 0, 0, width, height);
-        if (se[0] < 0 || nw[0] > width || se[1] < 0 || nw[1] > height) continue;
-        ctx.fillRect(nw[0], nw[1], Math.max(1, se[0] - nw[0]),
-          Math.max(1, se[1] - nw[1]));
+      // Paint contiguous runs, retaining exact refined cells while avoiding
+      // hundreds of thousands of individual fillRect calls and tiny seams.
+      for (let gx = 0; gx < mask.gridWidth;) {
+        if (!mask.visible[gy * mask.gridWidth + gx]) { gx++; continue; }
+        const start = gx;
+        while (gx < mask.gridWidth && mask.visible[gy * mask.gridWidth + gx]) gx++;
+        const west = minLon + (start * step / mask.width) * (maxLon-minLon);
+        const east = minLon + (Math.min(mask.width,gx*step)/mask.width) * (maxLon-minLon);
+        const nw=core.positionOnMap([west,north],extent,0,0,width,height);
+        const se=core.positionOnMap([east,south],extent,0,0,width,height);
+        if(se[0]<0 || nw[0]>width || se[1]<0 || nw[1]>height)continue;
+        ctx.fillRect(nw[0],nw[1],se[0]-nw[0],se[1]-nw[1]);
       }
     }
     ctx.restore();
@@ -288,6 +292,7 @@
       }
     }
     drawWarningMask(canvas, snapshot.warning.mask, extent);
+    core.drawMapAnnotations(ctx,extent,width,height,snapshot.warning.queenslandBoundary);
     return {
       extent, hasBasemap,
       image: { data: canvas.toDataURL("image/jpeg", 0.78), width, height }
@@ -310,13 +315,13 @@
     doc.text("Camera index", x, y);
     doc.setFont("helvetica", "normal");
     if (cameras.length <= 22) {
-      const line = 6.5;
+      const line = cameras.length <= 16 ? 9 : 6.5;
       cameras.forEach((camera, i) => {
         const yy = y + 9 + i * line;
-        doc.setFontSize(7.1); doc.setTextColor(50);
-        const label = doc.splitTextToSize((i + 1) + ". " + camera.name, 47)[0];
+        doc.setFontSize(cameras.length <= 16 ? 7.1 : 6.2); doc.setTextColor(50);
+        const label = doc.splitTextToSize((i + 1) + ". " + camera.name, 47);
         doc.text(label, x, yy);
-        doc.link(x - 1, yy - 4.3, 51, 6, { pageNumber: 2 + Math.floor(i / 6) });
+        doc.link(x - 1, yy - 4.3, 51, line, { pageNumber: 2 + Math.floor(i / 6) });
       });
     } else if (cameras.length <= 62) {
       const rows = Math.ceil(cameras.length / 2);
@@ -352,7 +357,7 @@
     doc.line(237, maxY + 1, 290, maxY + 1);
   }
 
-  function drawOverviewPage(doc, snapshot, cameras, map, generatedAt, total) {
+  function drawOverviewPage(doc, snapshot, cameras, map, generatedAt, total, excluded) {
     const title = "Queensland " + (snapshot.profile.outputTitle ||
       snapshot.profile.label + " Warning") + " - Camera Situation Report";
     drawHeader(doc, title, generatedAt);
@@ -390,14 +395,14 @@
     doc.setFillColor(242, 119, 34); doc.rect(12, 189, 5, 4, "F");
     doc.text(snapshot.diagnostic
       ? "Synthetic test selection - NOT a BoM warning"
-      : "Queensland-clipped warning detection pixels", 19, 192.4);
+      : "Warning area (refined raster approximation)", 19, 192.4);
     doc.setFillColor(192, 38, 45); doc.circle(110, 191, 2.6, "F");
     doc.text("Included camera photographs (click number)", 115, 192.4);
     doc.setTextColor(95); doc.setFontSize(7);
     doc.text(map.hasBasemap ? "ArcGIS topographic basemap" :
       "Basemap unavailable - geographic reference grid", 239, 191);
-    doc.text("Only successfully embedded photographs are mapped; unknown image age is labelled.",
-      12, 200);
+    doc.text("Only usable photographs are mapped; unknown image age is labelled. " +
+      excluded + " camera(s) excluded (unavailable, placeholder or stale).", 12, 200);
     doc.text(cameras.length + " photographs | " + total + " pages | Not a live feed",
       285, 205, { align: "right" });
   }
@@ -413,34 +418,36 @@
     doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
     doc.text("Photographs retrieved at report creation, not a live feed. " +
       "Generated: " + core.aest(generatedAt), 10, 20);
-    const x0 = 9, y0 = 27, cellW = 90, cellH = 84, gapX = 4, gapY = 3;
     const count = Math.min(6, cameras.length - offset);
+    const { columns, cellW, cellH } = core.snapshotLayout(count);
+    const x0 = 9, y0 = 27, gapX = 4, gapY = 3;
     for (let local = 0; local < count; local++) {
       const i = offset + local, camera = cameras[i];
-      const col = local % 3, row = Math.floor(local / 3);
+      const col = local % columns, row = Math.floor(local / columns);
       const x = x0 + col * (cellW + gapX), y = y0 + row * (cellH + gapY);
       doc.setDrawColor(209, 214, 218);
       doc.setFillColor(251, 252, 252);
       doc.roundedRect(x, y, cellW, cellH, 2, 2, "FD");
       doc.setTextColor(34); doc.setFont("helvetica", "bold"); doc.setFontSize(8.3);
       const heading = doc.splitTextToSize((i + 1) + ". " + camera.name,
-        cellW - 6).slice(0, 1);
+        cellW - 6);
       doc.text(heading, x + 3, y + 6);
+      const headingHeight = Math.max(0, heading.length-1)*3.5;
       doc.setFont("helvetica", "normal"); doc.setFontSize(7.3);
       doc.setTextColor(74);
       doc.text(doc.splitTextToSize(camera.sourceName, cellW - 6)[0],
-        x + 3, y + 12);
+        x + 3, y + 12 + headingHeight);
       const capture = camera.imageCapturedAt
         ? "Image captured: " + core.aest(camera.imageCapturedAt)
         : "Image time unknown";
-      doc.text(capture, x + 3, y + 17.5);
-      doc.text("Retrieved: " + core.aest(camera.retrievedAt), x + 3, y + 23);
-      const frame = { x: x + 3, y: y + 26, w: cellW - 6, h: cellH - 29 };
+      doc.text(capture, x + 3, y + 17.5 + headingHeight);
+      doc.text("Retrieved: " + core.aest(camera.retrievedAt), x + 3, y + 23 + headingHeight);
+      const frame = { x: x + 3, y: y + 26 + headingHeight, w: cellW - 6, h: cellH - 29 - headingHeight };
       const img = camera.pdfImage;
       const ratio = Math.min(frame.w / img.width, frame.h / img.height);
       const iw = img.width * ratio, ih = img.height * ratio;
       doc.addImage(img.data, "JPEG", frame.x + (frame.w - iw) / 2,
-        frame.y + (frame.h - ih) / 2, iw, ih);
+        frame.y, iw, ih);
       // Release duplicate base64 strings as soon as jsPDF owns each image.
       camera.pdfImage = null;
     }
@@ -474,7 +481,7 @@
     const candidates = candidatesFromAnalysis(run.context);
     const failedSources = Object.values(run.context.sources || {})
       .filter(item => item.status === "unavailable").length;
-    let processed = 0, success = 0, failed = 0, stale = 0;
+    let processed = 0, success = 0, failed = 0, stale = 0, placeholders = 0;
     progress.hidden = false; progress.max = Math.max(1, candidates.length);
     progress.value = 0;
     const showProgress = () => {
@@ -482,7 +489,7 @@
       progress.value = processed;
       message("Retrieving camera photographs " + processed + "/" + candidates.length +
         " | retrieved " + success + " | too old " + stale +
-        " | unavailable " + failed +
+        " | unavailable " + failed + " | placeholders " + placeholders +
         (failedSources ? " | source failures " + failedSources : ""));
     };
     showProgress();
@@ -499,6 +506,7 @@
           processed++;
           if (result.reason === "stale") stale++;
           else if (result.image) success++;
+          else if (result.reason === "placeholder") placeholders++;
           else failed++;
           showProgress();
         });
@@ -513,7 +521,7 @@
         }).filter(Boolean);
       if (!ready.length) {
         message("No retrievable, sufficiently fresh camera photographs remain. " +
-          failed + " image failures, " + stale + " stale; no PDF created.");
+          failed + " image failures, " + placeholders + " placeholders, " + stale + " stale; no PDF created.");
         return;
       }
       message("Preparing " + (run.diagnostic ? "simulated TEST" : "Queensland warning") +
@@ -548,7 +556,8 @@
           ? "SIMULATED TEST AREA - NOT AN ACTIVE WARNING; camera PDF diagnostic"
           : "Warning-area photograph snapshots; not a live camera feed"
       });
-      drawOverviewPage(doc, run.context, eligible, map, generatedAt, total);
+      drawOverviewPage(doc, run.context, eligible, map, generatedAt, total,
+        candidates.length-eligible.length);
       for (let offset = 0; offset < eligible.length; offset += 6) {
         assertCurrent(run);
         doc.addPage("a4", "landscape");
@@ -573,7 +582,7 @@
       message((run.diagnostic ? "SIMULATED TEST - " : "") +
         "Camera PDF downloaded: " + eligible.length + " photographs in " +
         total + " pages. " + stale + " stale; " + failed +
-        " image failures" + (failedSources ? "; " + failedSources +
+        " image failures; " + placeholders + " placeholders" + (failedSources ? "; " + failedSources +
         " source failures" : "") + ". Image times are labelled individually.");
       progress.value = progress.max;
     } catch (error) {
@@ -619,3 +628,4 @@
   });
   invalidate();
 })();
+

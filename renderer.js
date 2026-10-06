@@ -38,7 +38,7 @@
   const cameraPanel = document.querySelector("#cameraPanel");
   const cameraStatus = document.querySelector("#cameraStatus");
   const cameraList = document.querySelector("#cameraList");
-  const TRACKING_PREF_KEY = "mapping.includeThunderstormCellTracking";
+  const TRACKING_PREF_KEY = "mapping.includeThunderstormCellTracking.v2";
   const PROFILE_PREF_KEY = "mapping.warningProfile";
   const PROFILES = cfg.arcgis?.warningProfiles || {};
 
@@ -659,7 +659,7 @@
     // PDF work starts only on its own button, never during JPEG rendering.
     if (runId===cameraAnalysisRun && currentProfile().key===profile.key) {
       window.MAPPING_CAMERA_REPORT?.setContext({
-        warning: { active:true, extent:[...warning.extent], mask:warning.mask },
+        warning: { active:true, extent:[...warning.extent], mask:warning.mask, queenslandBoundary:warning.queenslandBoundary },
         profile: { key:profile.key, label:profile.label,
           outputTitle:profile.outputTitle },
         sources:state
@@ -735,17 +735,8 @@
   }
 
   function padGeographicExtent(extent) {
-    const [xmin, ymin, xmax, ymax] = extent;
-    const lonSpan = Math.max(0.4, xmax - xmin);
-    const latSpan = Math.max(0.4, ymax - ymin);
-    const lonPad = Math.max(0.25, lonSpan * 0.16);
-    const latPad = Math.max(0.25, latSpan * 0.16);
-    return [
-      clamp(xmin - lonPad, QLD_EXTENT[0], QLD_EXTENT[2]),
-      clamp(ymin - latPad, QLD_EXTENT[1], QLD_EXTENT[3]),
-      clamp(xmax + lonPad, QLD_EXTENT[0], QLD_EXTENT[2]),
-      clamp(ymax + latPad, QLD_EXTENT[1], QLD_EXTENT[3])
-    ];
+    return window.MAPPING_CAMERA_PDF_CORE.regionalBounds(extent,
+      renderCfg.minimumRegionalKm || 180, .40);
   }
 
   function unionExtents(extents) {
@@ -759,7 +750,7 @@
     ];
   }
 
-  async function analyseDetectionBlob(blob, detectionSize, { components=false }={}) {
+  async function analyseDetectionBlob(blob, detectionSize, { components=false, extent=QLD_EXTENT, sampleStep=2 }={}) {
     const image = await blobToBitmap(blob);
     const canvas = document.createElement("canvas");
     canvas.width = detectionSize[0];
@@ -767,10 +758,11 @@
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    image.close?.();
 
     const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
     const bg = backgroundSample(pixels, canvas.width, canvas.height);
-    const step = 2;
+    const step = sampleStep;
     const gridWidth = Math.ceil(canvas.width / step);
     const gridHeight = Math.ceil(canvas.height / step);
     const visible = new Uint8Array(gridWidth * gridHeight);
@@ -812,18 +804,18 @@
       step,
       width: canvas.width,
       height: canvas.height,
-      extent: [...QLD_EXTENT]
+      extent: [...extent]
     };
 
     if (hits < 35 || maxX < minX || maxY < minY) {
-      return { active: false, extent: [...QLD_EXTENT], components: [], mask };
+      return { active: false, extent: [...extent], components: [], mask };
     }
 
     const rawExtent = [
-      pixelToGeographic(minX, maxY + step, canvas.width, canvas.height)[0],
-      pixelToGeographic(minX, maxY + step, canvas.width, canvas.height)[1],
-      pixelToGeographic(maxX + step, minY, canvas.width, canvas.height)[0],
-      pixelToGeographic(maxX + step, minY, canvas.width, canvas.height)[1]
+      pixelToGeographic(minX, maxY + step, canvas.width, canvas.height, extent)[0],
+      pixelToGeographic(minX, maxY + step, canvas.width, canvas.height, extent)[1],
+      pixelToGeographic(maxX + step, minY, canvas.width, canvas.height, extent)[0],
+      pixelToGeographic(maxX + step, minY, canvas.width, canvas.height, extent)[1]
     ];
 
     if (!components) {
@@ -888,13 +880,13 @@
           sampleY = Math.min(canvas.height - 1, fallbackGY * step);
         }
 
-        const southwest = pixelToGeographic(cMinX, cMaxY + step, canvas.width, canvas.height);
-        const northeast = pixelToGeographic(cMaxX + step, cMinY, canvas.width, canvas.height);
+        const southwest = pixelToGeographic(cMinX, cMaxY + step, canvas.width, canvas.height, extent);
+        const northeast = pixelToGeographic(cMaxX + step, cMinY, canvas.width, canvas.height, extent);
         found.push({
           extent: [southwest[0], southwest[1], northeast[0], northeast[1]],
           sampleX,
           sampleY,
-          sampleCoord: pixelToGeographic(sampleX, sampleY, canvas.width, canvas.height),
+          sampleCoord: pixelToGeographic(sampleX, sampleY, canvas.width, canvas.height, extent),
           hits: count
         });
       }
@@ -1034,19 +1026,32 @@
     return canvas;
   }
 
-  async function renderDetectionLayer(sublayerTitles, { components=false }={}) {
+  async function renderDetectionLayer(sublayerTitles, { components=false, extent=QLD_EXTENT, size=null, sampleStep=2 }={}) {
     const arcgis = window.MAPPING_ARCGIS;
     if (!arcgis?.renderWmsImage) throw new Error("Authenticated ArcGIS rendering is not ready.");
 
-    const detectionSize = renderCfg.warningDetectionSize || [720, 900];
+    let detectionSize = size || renderCfg.warningDetectionSize || [720, 900];
+    if (size) {
+      // Geographic WMS extent and output image must have the same aspect.
+      // Otherwise a print service may expand the extent and misregister pixels.
+      const aspect = (extent[2]-extent[0])/(extent[3]-extent[1]);
+      const longest = Math.max(...size);
+      detectionSize = aspect >= 1 ? [longest,Math.max(64,Math.round(longest/aspect))]
+        : [Math.max(64,Math.round(longest*aspect)),longest];
+      const cx=(extent[0]+extent[2])/2, cy=(extent[1]+extent[3])/2;
+      const imageAspect=detectionSize[0]/detectionSize[1];
+      const dx=Math.max(extent[2]-extent[0],(extent[3]-extent[1])*imageAspect)/2;
+      const dy=dx/imageAspect;
+      extent=[cx-dx,cy-dy,cx+dx,cy+dy];
+    }
     const result = await arcgis.renderWmsImage(
       "warning",
-      QLD_EXTENT,
+      extent,
       detectionSize[0],
       detectionSize[1],
       { sublayerTitles }
     );
-    const analysis = await analyseDetectionBlob(result.blob, detectionSize, { components });
+    const analysis = await analyseDetectionBlob(result.blob, detectionSize, { components, extent, sampleStep });
     return { ...analysis, detectionBlob: result.blob, detectionSize };
   }
 
@@ -1056,7 +1061,16 @@
       renderDetectionLayer(titles, { components: false }),
       loadQueenslandBoundary()
     ]);
-    return clipDetectionToQueensland(detection, boundary);
+    const coarse = clipDetectionToQueensland(detection, boundary);
+    if (!coarse.active) return coarse;
+    // A fresh local scan avoids magnifying statewide cells. Do not silently
+    // select cameras against the coarse mask if refinement is unavailable.
+    const refined = await renderDetectionLayer(titles, {
+      extent: coarse.extent, size: renderCfg.warningRefinementSize || [1600,1600], sampleStep: 1
+    });
+    const result = clipDetectionToQueensland(refined, boundary);
+    if (!result.active) throw new Error("Warning changed during local refinement. Generate maps again.");
+    return result;
   }
 
   function lonLatToWebMercator(coord) {
@@ -1862,7 +1876,7 @@
     return true;
   }
 
-  function drawLgaLabels(ctx, lga, project, active) {
+  function drawLgaLabels(ctx, lga, project, active, width, height) {
     if (!active) return;
     const labels = [];
     ctx.save();
@@ -1877,7 +1891,17 @@
       const text = candidateName(feature.properties);
       const point = representativePoint(feature.geometry);
       if (!text || !point) continue;
-      const [x, y] = project(point);
+      let [x, y] = project(point);
+      const half = ctx.measureText(text).width / 2 + 5;
+      if (half*2 > width-16) continue;
+      if (x < 0 || x > width || y < 0 || y > height) {
+        const box = geometryBounds(feature.geometry);
+        if (!box) continue;
+        const a=project([box[0],box[3]]), b=project([box[2],box[1]]);
+        x=(Math.max(0,a[0])+Math.min(width,b[0]))/2;
+        y=(Math.max(0,a[1])+Math.min(height,b[1]))/2;
+      }
+      x=clamp(x,half+8,width-half-8); y=clamp(y,18,height-18);
       if (!collisionFree(labels, x, y, text, 14)) continue;
       ctx.strokeText(text, x, y);
       ctx.fillText(text, x, y);
@@ -2010,7 +2034,7 @@
       lineWidth: 1
     });
 
-    drawLgaLabels(ctx, data.lga, project, active);
+    drawLgaLabels(ctx, data.lga, project, active, width, height);
 
     drawFeatureSet(ctx, data.coastline, project, {
       strokeStyle: "#4d5458",
@@ -2028,7 +2052,7 @@
   function makeProductCanvas(mapWidth, mapHeight, title, subtitle) {
     const top = 66;
     const legendHeight = 116;
-    const footerHeight = 72;
+    const footerHeight = 91;
     const canvas = document.createElement("canvas");
     canvas.width = mapWidth;
     canvas.height = mapHeight + top + legendHeight + footerHeight;
@@ -2153,7 +2177,7 @@
     ctx.textBaseline = "alphabetic";
     ctx.fillText(
       trackingEnabled
-        ? "Thunderstorm cell tracking overlay: storm cell and direction."
+        ? "Storm tracking: red = current cell; dashed circles = forecast positions (BoM)."
         : "Bureau of Meteorology radar rain-rate symbology",
       16,
       y + 103
@@ -2209,7 +2233,7 @@
     ctx.textBaseline = "alphabetic";
     ctx.fillText(
       trackingEnabled
-        ? "Thunderstorm cell tracking overlay: storm cell and direction."
+        ? "Storm tracking: red = current cell; dashed circles = forecast positions (BoM)."
         : "Road event names are intentionally omitted from the operational map.",
       16,
       y + 103
@@ -2231,7 +2255,7 @@
     ctx.font = "12px Arial";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    lines.slice(0, 3).forEach((line, index) => {
+    lines.slice(0, 4).forEach((line, index) => {
       ctx.fillText(line, 14, y + 12 + index * 17);
     });
   }
@@ -2310,6 +2334,31 @@
     mapsEl.appendChild(card);
   }
 
+
+  function sourceTimeText(value) {
+    const date = window.MAPPING_CAMERA_PDF_CORE.parseVerifiedImageTimestamp(value);
+    return date ? window.MAPPING_CAMERA_PDF_CORE.aest(date) : "not supplied by source";
+  }
+  // Outline the native yellow warning fill, keeping its edge readable above
+  // radar without modifying rain-rate colours or inventing warning geometry.
+  function makeWarningOutline(image,width,height) {
+    const canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;
+    const ctx=canvas.getContext("2d",{willReadFrequently:true});ctx.drawImage(image,0,0,width,height);
+    const pixels=ctx.getImageData(0,0,width,height), visible=new Uint8Array(width*height);
+    for(let i=0;i<visible.length;i++) {
+      const p=i*4;visible[i]=pixels.data[p+3]>12 && pixels.data[p]>150 && pixels.data[p+1]>110 && pixels.data[p+2]<140 ? 1:0;
+    }
+    const out=ctx.createImageData(width,height);
+    for(let y=1;y<height-1;y++)for(let x=1;x<width-1;x++) {
+      const i=y*width+x;
+      if(!visible[i] || (visible[i-1] && visible[i+1] && visible[i-width] && visible[i+width]))continue;
+      for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++) {
+        const p=((y+dy)*width+x+dx)*4;out.data[p]=157;out.data[p+1]=91;out.data[p+2]=16;out.data[p+3]=235;
+      }
+    }
+    ctx.putImageData(out,0,0);return canvas;
+  }
+
   async function buildProducts(
     extent, active, publicData, publicWarnings,
     profile=currentProfile(), selection=null, queenslandBoundary=null
@@ -2386,13 +2435,21 @@
     const trackingOverlay = trackingImage && qldMask
       ? clipWmsImageToQueensland(trackingImage, qldMask, mapWidth, mapHeight)
       : trackingImage;
+    const warningOutline = profile.key === "thunderstorm"
+      ? makeWarningOutline(warningOverlay,mapWidth,mapHeight) : null;
+    const locatorBoundary = queenslandBoundary || await loadQueenslandBoundary().catch(() => null);
+    const sourceTimes = "Radar observation: " + sourceTimeText(radarResult?.sourceTime) +
+      " · Warning issue: " + sourceTimeText(warningResult?.sourceTime);
     const basemapAttribution = basemapResult?.attribution
       ? "Basemap: ArcGIS Topographic · " + basemapResult.attribution
       : "Basemap: built-in Queensland context · ArcGIS Topographic unavailable for this signed-in account.";
 
     const selectedLabel = selection?.title || "";
+    const regionNames = publicData.affectedLgas || [];
+    const regionText = regionNames.length ? regionNames.slice(0,3).join(" / ") +
+      (regionNames.length > 3 ? " and surrounds" : " region") : "Regional context";
     const scopeText = active
-      ? (selectedLabel || ("Current " + profile.activeScopeLabel + " extent"))
+      ? (selectedLabel || (regionText + " · current " + profile.activeScopeLabel))
       : ("Queensland statewide · no active " + profile.activeScopeLabel + " detected");
     const generated = new Date();
     const stamp = generated.toLocaleString("en-AU", {
@@ -2420,6 +2477,7 @@
     const rctx = radarProduct.ctx;
     rctx.save();
     rctx.translate(radarProduct.mapX, radarProduct.mapY);
+    rctx.beginPath(); rctx.rect(0,0,mapWidth,mapHeight); rctx.clip();
     drawContext(rctx, mapWidth, mapHeight, renderExtent, publicData, active, basemapImage);
 
     // Warning fill/context sits below radar. Keep the radar at native/full
@@ -2428,14 +2486,16 @@
     rctx.globalAlpha = 1;
     rctx.drawImage(radarImage, 0, 0, mapWidth, mapHeight);
 
-    if (trackingOverlay) rctx.drawImage(trackingOverlay, 0, 0, mapWidth, mapHeight);
+    if (warningOutline) rctx.drawImage(warningOutline,0,0,mapWidth,mapHeight);
+    window.MAPPING_CAMERA_PDF_CORE.drawMapAnnotations(rctx,renderExtent,mapWidth,mapHeight,locatorBoundary);
     rctx.strokeStyle = "#454b4f";
     rctx.lineWidth = 1;
     rctx.strokeRect(0.5, 0.5, mapWidth - 1, mapHeight - 1);
     rctx.restore();
-    drawRadarLegend(rctx, radarProduct, active, trackingEnabled, profile);
+    drawRadarLegend(rctx, radarProduct, active, false, profile);
     drawFooter(rctx, radarProduct, [
       "Generated " + stamp,
+      sourceTimes,
       "Sources: Bureau of Meteorology warning/radar via ArcGIS · Queensland Government boundaries.",
       basemapAttribution
     ]);
@@ -2449,11 +2509,13 @@
     const ictx = infraProduct.ctx;
     ictx.save();
     ictx.translate(infraProduct.mapX, infraProduct.mapY);
+    ictx.beginPath(); ictx.rect(0,0,mapWidth,mapHeight); ictx.clip();
     const project = drawContext(ictx, mapWidth, mapHeight, renderExtent, publicData, active, basemapImage);
     ictx.drawImage(warningOverlay, 0, 0, mapWidth, mapHeight);
     if (trackingOverlay) ictx.drawImage(trackingOverlay, 0, 0, mapWidth, mapHeight);
     drawOutages(ictx, publicData.outagesNorm || [], project, !active);
     drawRoadConditions(ictx, publicData.roadsNorm || [], project);
+    window.MAPPING_CAMERA_PDF_CORE.drawMapAnnotations(ictx,renderExtent,mapWidth,mapHeight,locatorBoundary);
     ictx.strokeStyle = "#454b4f";
     ictx.lineWidth = 1;
     ictx.strokeRect(0.5, 0.5, mapWidth - 1, mapHeight - 1);
@@ -2465,6 +2527,7 @@
     drawInfrastructureLegend(ictx, infraProduct, active, hasPointOutages, trackingEnabled, profile);
     drawFooter(ictx, infraProduct, [
       "Generated " + stamp,
+      sourceTimes,
       "Sources: Bureau of Meteorology warning via ArcGIS · Queensland power outage feed · QLD Traffic · Queensland Government boundaries.",
       basemapAttribution
     ]);
@@ -2537,7 +2600,9 @@
       });
 
       if (profile.key !== "flooding") {
-        renderAffectedAreas(analyseAffectedAreas(warning, data));
+        const affected = analyseAffectedAreas(warning, data);
+        data.affectedLgas = affected.lgas;
+        renderAffectedAreas(affected);
       }
 
       emptyEl.textContent = "Rendering authenticated weather imagery and composing JPEG products…";
@@ -2563,7 +2628,7 @@
         warning.active ? prefix + "-radar-combined" : prefix + "-radar-statewide",
         (warning.active ? "radar · selected warning extent" : "radar · statewide") +
           selectionMeta +
-          (products.trackingEnabled ? " · cell tracking" : ""),
+          " · regional context",
         products.generated
       );
       addMapCard(
@@ -2653,3 +2718,4 @@
   if (modeEl) modeEl.textContent = currentProfile().label;
   updateWarningSourceDetail();
 })();
+

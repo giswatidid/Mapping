@@ -147,7 +147,10 @@ window.MAPPING_CONFIG = {
     outputSpatialReference: 3857,
     qldExtent: [137.7, -29.3, 154.2, -9.0],
     warningDetectionSize: [720, 900],
+    warningRefinementSize: [1600, 1600],
+    minimumRegionalKm: 180,
     maxOutputWidth: 1500,
     minOutputWidth: 1100
   }
 };
+
