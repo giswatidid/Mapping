@@ -51,6 +51,7 @@
   let selectedFloodCandidateId = null;
   let cameraAnalysisRun = 0;
   let queenslandBoundaryPromise = null;
+  let queenslandLocatorBoundaryPromise = null;
   const adminBoundaryState = {
     localGovernment: { status: "resolving", layer: null, error: "" },
     disasterDistricts: { status: "resolving", layer: null, error: "" }
@@ -940,6 +941,30 @@
     return queenslandBoundaryPromise;
   }
 
+  // The official Mainland polygon is derived from Queensland's coastline
+  // and state-border datasets. LGA polygons include offshore administrative
+  // areas, so use a separate statewide land silhouette only for JPEG insets.
+  function loadQueenslandLocatorBoundary() {
+    if (!queenslandLocatorBoundaryPromise) {
+      queenslandLocatorBoundaryPromise = queryArcgis(
+        publicSources.mainland, QLD_EXTENT, "name = 'Queensland'", "name,feature_type",
+        { maxAllowableOffset: 0.01 }
+      ).then(collection => {
+        const features = (collection?.features || []).filter(feature =>
+          ["Polygon", "MultiPolygon"].includes(feature.geometry?.type)
+        );
+        if (collection?.type !== "FeatureCollection" || !features.length) {
+          throw new Error("The Queensland locator request returned no land polygons.");
+        }
+        return { type: "FeatureCollection", features };
+      }).catch(error => {
+        queenslandLocatorBoundaryPromise = null;
+        throw error;
+      });
+    }
+    return queenslandLocatorBoundaryPromise;
+  }
+
   function makeQueenslandMaskCanvas(boundary, width, height, project) {
     if (!Array.isArray(boundary?.features) || !boundary.features.length) {
       throw new Error("Queensland boundary polygons are required to clip the warning.");
@@ -1153,7 +1178,7 @@
     return bbox ? [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2] : null;
   }
 
-  function queryArcgis(url, extent, where="1=1", outFields="*") {
+  function queryArcgis(url, extent, where="1=1", outFields="*", { maxAllowableOffset }={}) {
     const query = new URL(url.replace(/\/$/, "") + "/query");
     query.searchParams.set("where", where);
     query.searchParams.set("outFields", outFields);
@@ -1164,6 +1189,7 @@
     query.searchParams.set("geometryType", "esriGeometryEnvelope");
     query.searchParams.set("inSR", "4326");
     query.searchParams.set("spatialRel", "esriSpatialRelIntersects");
+    if (maxAllowableOffset) query.searchParams.set("maxAllowableOffset", String(maxAllowableOffset));
     return fetch(query, { cache: "no-store" }).then((response) => {
       if (!response.ok) throw new Error("Reference layer request returned HTTP " + response.status);
       return response.json();
@@ -2437,7 +2463,7 @@
       : trackingImage;
     const warningOutline = profile.key === "thunderstorm"
       ? makeWarningOutline(warningOverlay,mapWidth,mapHeight) : null;
-    const locatorBoundary = queenslandBoundary || await loadQueenslandBoundary().catch(() => null);
+    const locatorBoundary = await loadQueenslandLocatorBoundary().catch(() => null);
     const radarTime = sourceTimeText(radarResult?.sourceTime);
     const warningTime = sourceTimeText(warningResult?.sourceTime);
     const radarSourceTimes = [radarTime && "Radar observation: " + radarTime,
@@ -2728,5 +2754,3 @@
   if (modeEl) modeEl.textContent = currentProfile().label;
   updateWarningSourceDetail();
 })();
-
-

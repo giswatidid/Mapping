@@ -2,8 +2,8 @@
 const test=require('node:test');const assert=require('node:assert/strict');
 const fs=require('node:fs');const vm=require('node:vm');const path=require('node:path');
 const core=require('../camera-pdf-core.js');
-function harness({radarTime=null,warningTime=null}={}){
-  const canvases=[],requests=[];
+function harness({radarTime=null,warningTime=null,locatorResponse=locatorBoundary}={}){
+  const canvases=[],requests=[],locatorRequests=[],annotations=[];
   const toggle={checked:true};
   class Canvas {
     constructor(){this.width=1;this.height=1;this.ops=[];this.image=null;this.path=[];
@@ -23,7 +23,9 @@ function harness({radarTime=null,warningTime=null}={}){
     }
     getContext(){return this.ctx;}toBlob(cb){cb(new Blob(['jpeg']));}
   }
-  const root={MAPPING_CAMERA_PDF_CORE:core,MAPPING_CONFIG:{rendering:{minimumRegionalKm:180}},
+  const root={MAPPING_CAMERA_PDF_CORE:{...core,drawMapAnnotations:(...args)=>{
+    annotations.push(args);return core.drawMapAnnotations(...args);
+  }},MAPPING_CONFIG:{rendering:{minimumRegionalKm:180},publicSources:{mainland:'https://example.test/mainland',lga:'https://example.test/lga'}},
     MAPPING_ARCGIS:{renderWmsImage:async(role,extent,width,height,options)=>{
       requests.push({role,extent,width,height,options});
       const rgba=new Uint8ClampedArray(width*height*4);
@@ -35,15 +37,45 @@ function harness({radarTime=null,warningTime=null}={}){
   const ctx={window:root,document:{querySelector:s=>s==='#cellTrackingToggle'?toggle:null,
     querySelectorAll:()=>[],createElement:()=>new Canvas()},
     localStorage:{getItem:()=>null},createImageBitmap:async blob=>blob,
+    fetch:async url=>{locatorRequests.push(url);return {ok:true,json:async()=>locatorResponse};},
     Blob,URL,Date,Math,Uint8Array,Uint8ClampedArray,console,setTimeout,clearTimeout};
   let source=fs.readFileSync(path.join(__dirname,'../renderer.js'),'utf8');
   source=source.slice(0,source.lastIndexOf('  if (cellTrackingToggle) {'))+
-    'window.review={analyseDetectionBlob,renderDetectionLayer,clipDetectionToQueensland,warningMaskContainsPoint,buildProducts,drawLgaLabels,makeTransform,sourceTimeText};})();';
+    'window.review={analyseDetectionBlob,renderDetectionLayer,clipDetectionToQueensland,warningMaskContainsPoint,buildProducts,drawLgaLabels,makeTransform,sourceTimeText,loadQueenslandLocatorBoundary};})();';
   vm.runInNewContext(source,ctx);
-  return {api:root.review,root,canvases,requests,toggle};
+  return {api:root.review,root,canvases,requests,toggle,locatorRequests,annotations};
 }
 const boundary={type:'FeatureCollection',features:[{type:'Feature',properties:{lga:'Test Region'},
   geometry:{type:'Polygon',coordinates:[[[149,-29],[154,-29],[154,-24],[149,-24],[149,-29]]]}}]};
+const locatorBoundary={type:'FeatureCollection',features:[{type:'Feature',properties:{name:'Queensland'},
+  geometry:{type:'Polygon',coordinates:[[[138,-17],[142,-11],[153,-28],[141,-29],[138,-17]]]}}]};
+
+test('both JPEG insets use the cached statewide coast/border land silhouette instead of LGAs',async()=>{
+  const {api,locatorRequests,annotations}=harness();
+  const profile={key:'thunderstorm',supportsTracking:false,renderSublayerTitles:['warning']};
+  await api.buildProducts([150,-28,152,-26],true,{lga:boundary},[],profile,null,boundary);
+  assert.equal(annotations.length,2);
+  assert.equal(annotations[0][4],annotations[1][4]);
+  assert.equal(annotations[0][4].features[0],locatorBoundary.features[0]);
+  assert.notEqual(annotations[0][4].features[0],boundary.features[0]);
+  await api.loadQueenslandLocatorBoundary();
+  assert.equal(locatorRequests.length,1);
+  const query=locatorRequests[0];
+  assert.equal(query.pathname,'/mainland/query');
+  assert.equal(query.searchParams.get('where'),"name = 'Queensland'");
+  assert.equal(query.searchParams.get('geometry'),'137.7,-29.3,154.2,-9');
+  assert.equal(query.searchParams.get('maxAllowableOffset'),'0.01');
+});
+
+test('a missing coast/border source omits the inset without falling back to LGA shapes and retries',async()=>{
+  const {api,locatorRequests,annotations}=harness({locatorResponse:{type:'FeatureCollection',features:[]}});
+  const profile={key:'thunderstorm',supportsTracking:false,renderSublayerTitles:['warning']};
+  await api.buildProducts([150,-28,152,-26],true,{lga:boundary},[],profile,null,boundary);
+  assert.equal(annotations.length,2);
+  for(const args of annotations)assert.equal(args[4],null);
+  await assert.rejects(api.loadQueenslandLocatorBoundary(),/no land polygons/);
+  assert.equal(locatorRequests.length,2);
+});
 
 test('refined raster uses its local extent and rejects cameras outside the actual mask',async()=>{
   const {api}=harness();const width=20,height=20,rgba=new Uint8ClampedArray(width*height*4);

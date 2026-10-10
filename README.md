@@ -336,3 +336,13 @@ Explicit observation/issue timestamps are included only when available; absent
 or ambiguous times produce no placeholder text or empty row. Infrastructure
 maps only show a warning timestamp, since they do not contain radar. Generation
 times use 24-hour AEST, and regional subtitles avoid repeated council suffixes.
+
+### Queensland locator inset
+
+The two JPEG maps use the official Queensland Mainland polygon for the grey
+locator silhouette. This polygon comes from the coastline and state-border
+datasets, rather than LGA polygons with offshore administrative areas. The
+full-state geometry is loaded once per page and simplified only for the small
+inset; both products retain the same red map-location box. If this source is
+unavailable, the inset is omitted and retried on the next generation. Main-map
+LGA boundaries, warning clipping and the Camera Situation Report are unchanged.
